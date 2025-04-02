@@ -1,4 +1,3 @@
 ﻿.idea
-WindowAnalyser/obj
-WindowLogger/bin
-WindowLogger/obj
+bin/
+obj/
