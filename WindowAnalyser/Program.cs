@@ -23,7 +23,7 @@ internal static class Program
             .Skip(1) // Skip header if exists
             .Select(line =>
             {
-                var parts = line.Split(',');
+                string[] parts = line.Split(',');
                 if (parts.Length < 3)
                 {
                     throw new Exception("CSV format error: each row must have at least 3 columns.");
@@ -57,9 +57,9 @@ internal static class Program
             .ThenByDescending(x => x.TimeSpentMinutes);
 
         // Create Excel workbook
-        using (var workbook = new XLWorkbook())
+        using (XLWorkbook workbook = new XLWorkbook())
         {
-            var worksheet = workbook.Worksheets.Add("App Usage");
+            IXLWorksheet worksheet = workbook.Worksheets.Add("App Usage");
 
             // Add headers
             worksheet.Cell(1, 1).Value = "Date";
@@ -81,7 +81,7 @@ internal static class Program
             }
 
             // Format worksheet
-            var range = worksheet.Range(1, 1, row - 1, 5);
+            IXLRange range = worksheet.Range(1, 1, row - 1, 5);
             range.Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
             range.Style.Border.InsideBorder = XLBorderStyleValues.Thin;
             worksheet.Columns().AdjustToContents();
@@ -93,7 +93,7 @@ internal static class Program
         Console.WriteLine($"Analysis complete. Output saved to {outputFile}");
     }
 
-    static string ExtractAppName(string windowTitle) //TODO improve this
+    private static string ExtractAppName(string windowTitle) //TODO improve this
     {
         // Simple extraction - you might want to enhance this based on your window title format
         return windowTitle.Split('-', '—').Last().Trim();
@@ -107,7 +107,7 @@ internal static class Program
         double totalMinutes = 0;
         for (int i = 0; i < timestamps.Count - 1; i++)
         {
-            var diff = timestamps[i + 1] - timestamps[i];
+            TimeSpan diff = timestamps[i + 1] - timestamps[i];
             // Only count intervals less than 5 minutes as active time
             if (diff.TotalMinutes < 5)
             {

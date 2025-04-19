@@ -16,7 +16,7 @@ public class UserActivityDetector
 
     public static bool IsUserInactive(TimeSpan threshold)
     {
-        LASTINPUTINFO lastInputInfo = new LASTINPUTINFO();
+        LASTINPUTINFO lastInputInfo = new();
         lastInputInfo.cbSize = (uint)Marshal.SizeOf(lastInputInfo);
 
         if (!GetLastInputInfo(ref lastInputInfo))

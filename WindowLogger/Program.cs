@@ -58,14 +58,12 @@ internal static class Program
             {
                 string activeWindow = GetActiveWindowTitle(out string fileName);
                 activeWindow = activeWindow?.Replace(",", "");
-                if (!string.IsNullOrWhiteSpace(activeWindow))
-                {
-                    _lastWindowTitle = activeWindow;
-                    _lastExecutableName = fileName;
-                    string logLine = $"{DateTime.Now:yyyy-MM-dd HH:mm:ss},{activeWindow} [{fileName}],Active";
-                    File.AppendAllText(LogFileName, logLine + Environment.NewLine);
-                    Console.WriteLine(logLine);
-                }
+                if (string.IsNullOrWhiteSpace(activeWindow)) return;
+                _lastWindowTitle = activeWindow;
+                _lastExecutableName = fileName;
+                string logLine = $"{DateTime.Now:yyyy-MM-dd HH:mm:ss},{activeWindow} [{fileName}],Active";
+                File.AppendAllText(LogFileName, logLine + Environment.NewLine);
+                Console.WriteLine(logLine);
             }
 
             return;
@@ -95,24 +93,20 @@ internal static class Program
 
         IntPtr handle = GetForegroundWindow();
 
-        if (GetWindowText(handle, buff, nChars) > 0)
+        if (GetWindowText(handle, buff, nChars) <= 0) return null;
+        GetWindowThreadProcessId(handle, out uint processId);
+
+        try
         {
-            uint processId;
-            GetWindowThreadProcessId(handle, out processId);
-
-            try
-            {
-                Process processById = Process.GetProcessById((int)processId);
-                executableName = Path.GetFileName(processById.MainModule.FileName);
-            }
-            catch (Exception ex)
-            {
-                executableName = $"error: {ex.Message}";
-            }
-
-            return buff.ToString();
+            Process processById = Process.GetProcessById((int)processId);
+            executableName = Path.GetFileName(processById.MainModule?.FileName);
+        }
+        catch (Exception ex)
+        {
+            executableName = $"error: {ex.Message}";
         }
 
-        return null;
+        return buff.ToString();
+
     }
 }
