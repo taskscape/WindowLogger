@@ -31,6 +31,14 @@ public class CategoryDefinition
     public List<string> ExcludeApplications { get; set; } = new();
 }
 
+public class TimeEntry
+{
+    public DateTime DateTime { get; set; }
+    public TimeSpan Duration { get; set; } = new TimeSpan(0);
+    public string WindowTitle { get; set; }
+    public string Status { get; set; }
+}
+
 internal static class Program
 {
     static void Main(string[] args)
@@ -74,12 +82,42 @@ internal static class Program
                     Status = parts[2].Trim()
                 };
             })
-            .Where(entry => !IsExcluded(entry.WindowTitle, settings.Exclusions))
             .OrderBy(x => x.DateTime)
             .ToList();
 
+        var timeEntries2 = new List<TimeEntry>();
+
+        for (int i = 0; i < timeEntries.Count; i++)
+        {
+            if (IsExcluded(timeEntries[i].WindowTitle, settings.Exclusions))
+            {
+                continue;
+            }
+            if (i >= timeEntries.Count - 1)
+            {
+                timeEntries2.Add(new TimeEntry
+                {
+                    DateTime = timeEntries[i].DateTime,
+                    Duration = new TimeSpan(0),
+                    WindowTitle = timeEntries[i].WindowTitle,
+                    Status = timeEntries[i].Status
+                });
+            }
+            else
+            {
+                timeEntries2.Add(new TimeEntry
+                {
+                    DateTime = timeEntries[i].DateTime,
+                    Duration = new TimeSpan(Math.Abs(timeEntries[i + 1].DateTime.Ticks - timeEntries[i].DateTime.Ticks)),
+                    WindowTitle = timeEntries[i].WindowTitle,
+                    Status = timeEntries[i].Status
+                });
+            }
+            
+        }
+
         // Group by Date, Application (extracted from WindowTitle), and Status. (WINDOWS tab)
-        var dailyAppUsage = timeEntries
+        var dailyAppUsage = timeEntries2
             .GroupBy(x => new
             {
                 Date = x.DateTime.Date,
@@ -91,12 +129,12 @@ internal static class Program
                 Date = g.Key.Date,
                 Application = g.Key.App,
                 Status = g.Key.Status,
-                TimeSpentMinutes = CalculateTimeSpent(g.Select(x => x.DateTime).ToList())
+                TimeSpentMinutes = CalculateTimeSpent(g.Select(x => x.Duration).ToList())
             })
             .OrderBy(x => x.Date)
             .ThenByDescending(x => x.TimeSpentMinutes);
 
-        var categorizedEntries = timeEntries.Select(entry =>
+        var categorizedEntries = timeEntries2.Select(entry =>
         {
             var appName = MatchApplication(entry.WindowTitle, settings.Applications);
             if (appName == null)
@@ -106,7 +144,7 @@ internal static class Program
             var categories = GetCategories(appName, settings.Categories);
             return new
             {
-                entry.DateTime,
+                entry.Duration,
                 entry.Status,
                 AppName = appName,
                 Categories = categories,
@@ -120,25 +158,25 @@ internal static class Program
             {
                 Application = g.Key.AppName,
                 Status = g.Key.Status,
-                TimeSpentMinutes = CalculateTimeSpent(g.Select(x => x.DateTime).ToList())
+                TimeSpentMinutes = CalculateTimeSpent(g.Select(x => x.Duration).ToList())
             })
             .OrderByDescending(x => x.TimeSpentMinutes)
             .ToList();
 
         var groupedCategories = categorizedEntries
-            .SelectMany(x => x.Categories.Select(cat => new { Category = cat, x.DateTime, x.Status }))
+            .SelectMany(x => x.Categories.Select(cat => new { Category = cat, x.Duration, x.Status }))
             .GroupBy(x => new { x.Category, x.Status })
             .Select(g => new
             {
                 Category = g.Key.Category,
                 Status = g.Key.Status,
-                TimeSpentMinutes = CalculateTimeSpent(g.Select(x => x.DateTime).ToList())
+                TimeSpentMinutes = CalculateTimeSpent(g.Select(x => x.Duration).ToList())
             })
             .OrderByDescending(x => x.TimeSpentMinutes)
             .ToList();
 
 
-        var otherWindows = timeEntries.Select(entry =>
+        var otherWindows = timeEntries2.Select(entry =>
         {
             var appName = MatchApplication(entry.WindowTitle, settings.Applications);
             if (appName == null)
@@ -147,7 +185,7 @@ internal static class Program
                 var categories = GetCategories(appName, settings.Categories);
                 return new
                 {
-                    entry.DateTime,
+                    entry.Duration,
                     entry.Status,
                     AppName = appName,
                     Categories = categories,
@@ -156,13 +194,12 @@ internal static class Program
             }
             return null;
         }).Where(x => x != null).ToList()
-            .Where(x => settings.Applications.All(a => a.Name != x.AppName))
             .GroupBy(x => new { x.WindowTitle, x.Status })
             .Select(g => new
             {
                 Window = g.Key.WindowTitle,
                 Status = g.Key.Status,
-                TimeSpentMinutes = CalculateTimeSpent(g.Select(x => x.DateTime).ToList())
+                TimeSpentMinutes = CalculateTimeSpent(g.Select(x => x.Duration).ToList())
             })
             .OrderByDescending(x => x.TimeSpentMinutes)
             .ToList();
@@ -225,17 +262,15 @@ internal static class Program
         return windowTitle.Split('-', '—').Last().Trim();
     }
 
-    static double CalculateTimeSpent(List<DateTime> timestamps)
+    static double CalculateTimeSpent(List<TimeSpan> timestamps)
     {
         if (timestamps.Count < 2)
             return 0;
 
         double totalMinutes = 0;
-        for (int i = 0; i < timestamps.Count - 1; i++)
+        for (int i = 0; i < timestamps.Count; i++)
         {
-            TimeSpan diff = timestamps[i + 1] - timestamps[i];
-            if (diff.TotalMinutes < 5)
-                totalMinutes += diff.TotalMinutes;
+                totalMinutes += timestamps[i].TotalMinutes;
         }
         return Math.Round(totalMinutes, 2);
     }
