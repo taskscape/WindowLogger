@@ -67,7 +67,7 @@ internal static class Program
         Console.WriteLine(logLine);
     }
 
-    private static void TimerElapsed(object sender, ElapsedEventArgs e)
+    private static void TimerElapsed(object? sender, ElapsedEventArgs e)
     {
         TimeSpan threshold = TimeSpan.FromMinutes(MinutesToInactive);
         bool isInactive = UserActivityDetector.IsUserInactive(threshold);
@@ -85,7 +85,7 @@ internal static class Program
             }
             else
             {
-                string activeWindow = GetActiveWindowTitle(out string fileName);
+                string? activeWindow = GetActiveWindowTitle(out string fileName);
                 activeWindow = activeWindow?.Replace(",", "");
                 if (string.IsNullOrWhiteSpace(activeWindow)) return;
                 _lastWindowTitle = activeWindow;
@@ -120,13 +120,13 @@ internal static class Program
 
         IntPtr handle = GetForegroundWindow();
 
-        if (GetWindowText(handle, buff, nChars) <= 0) return null;
+        if (GetWindowText(handle, buff, nChars) <= 0) return null!;
         GetWindowThreadProcessId(handle, out uint processId);
 
         try
         {
             Process processById = Process.GetProcessById((int)processId);
-            executableName = Path.GetFileName(processById.MainModule?.FileName);
+            executableName = Path.GetFileName(processById.MainModule?.FileName) ?? "unknown";
         }
         catch (Exception ex)
         {

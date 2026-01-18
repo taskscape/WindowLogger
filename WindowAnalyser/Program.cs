@@ -154,18 +154,18 @@ internal static class Program
         }).Where(x=>x!=null).ToList();
 
         var groupedApps = categorizedEntries
-            .GroupBy(x => new { x.AppName, x.Status })
+            .GroupBy(x => new { x!.AppName, x.Status })
             .Select(g => new
             {
                 Application = g.Key.AppName,
                 Status = g.Key.Status,
-                TimeSpentMinutes = CalculateTimeSpent(g.Select(x => x.Duration).ToList())
+                TimeSpentMinutes = CalculateTimeSpent(g.Select(x => x!.Duration).ToList())
             })
             .OrderByDescending(x => x.TimeSpentMinutes)
             .ToList();
 
         var groupedCategories = categorizedEntries
-            .SelectMany(x => x.Categories.Select(cat => new { Category = cat, x.Duration, x.Status }))
+            .SelectMany(x => x!.Categories.Select(cat => new { Category = cat, x.Duration, x.Status }))
             .GroupBy(x => new { x.Category, x.Status })
             .Select(g => new
             {
@@ -192,12 +192,12 @@ internal static class Program
                 WindowTitle = entry.WindowTitle
             };
         }).Where(x => x != null).ToList()
-            .GroupBy(x => new { x.WindowTitle, x.Status })
+            .GroupBy(x => new { x!.WindowTitle, x.Status })
             .Select(g => new
             {
                 Window = g.Key.WindowTitle,
                 Status = g.Key.Status,
-                TimeSpentMinutes = CalculateTimeSpent(g.Select(x => x.Duration).ToList())
+                TimeSpentMinutes = CalculateTimeSpent(g.Select(x => x!.Duration).ToList())
             })
             .OrderByDescending(x => x.TimeSpentMinutes)
             .ToList();
