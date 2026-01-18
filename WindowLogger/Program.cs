@@ -14,6 +14,8 @@ internal static class Program
     private static string? _lastExecutableName = "";
     private static bool _inactive;
     private const double MinutesToInactive = 1;
+    private static StreamWriter? _logWriter;
+    private static readonly object _logLock = new object();
 
     [DllImport("user32.dll")]
     private static extern IntPtr GetForegroundWindow();
@@ -28,6 +30,12 @@ internal static class Program
     {
         Console.WriteLine("Active window logger started.");
         
+        // Initialize StreamWriter with AutoFlush enabled
+        _logWriter = new StreamWriter(LogFileName, append: true, Encoding.UTF8)
+        {
+            AutoFlush = true
+        };
+        
         _timer = new Timer(100); 
         _timer.Elapsed += TimerElapsed;
         _timer.AutoReset = true;
@@ -35,6 +43,28 @@ internal static class Program
 
         Console.WriteLine("Press Enter to exit...");
         Console.ReadLine();
+        
+        // Cleanup
+        _timer?.Stop();
+        _timer?.Dispose();
+        
+        lock (_logLock)
+        {
+            _logWriter?.Flush();
+            _logWriter?.Dispose();
+        }
+    }
+
+    private static void WriteLog(string logLine)
+    {
+        Console.WriteLine(logLine);
+        lock (_logLock)
+        {
+            _logWriter?.WriteLine(logLine);
+            // AutoFlush ensures immediate write, but we can also call Flush explicitly for critical data
+            _logWriter?.Flush();
+        }
+        Console.WriteLine(logLine);
     }
 
     private static void TimerElapsed(object sender, ElapsedEventArgs e)
@@ -51,8 +81,7 @@ internal static class Program
                 string inactiveWindowName = string.IsNullOrWhiteSpace(_lastWindowTitle) ? "Unknown" : _lastWindowTitle;
                 string inactiveExecutableName = string.IsNullOrWhiteSpace(_lastExecutableName) ? "Unknown" : _lastExecutableName;
                 string logLine = $"{DateTime.Now:yyyy-MM-dd HH:mm:ss},{inactiveWindowName} [{inactiveExecutableName}],Inactive";
-                File.AppendAllText(LogFileName, logLine + Environment.NewLine);
-                Console.WriteLine(logLine);
+                WriteLog(logLine);
             }
             else
             {
@@ -62,8 +91,7 @@ internal static class Program
                 _lastWindowTitle = activeWindow;
                 _lastExecutableName = fileName;
                 string logLine = $"{DateTime.Now:yyyy-MM-dd HH:mm:ss},{activeWindow} [{fileName}],Active";
-                File.AppendAllText(LogFileName, logLine + Environment.NewLine);
-                Console.WriteLine(logLine);
+                WriteLog(logLine);
             }
 
             return;
@@ -81,8 +109,7 @@ internal static class Program
         _lastWindowTitle = currentWindow;
         _lastExecutableName = activeFileName;
         string activeLogLine = $"{DateTime.Now:yyyy-MM-dd HH:mm:ss},{currentWindow} [{activeFileName}],Active";
-        File.AppendAllText(LogFileName, activeLogLine + Environment.NewLine);
-        Console.WriteLine(activeLogLine);
+        WriteLog(activeLogLine);
     }
 
     private static string GetActiveWindowTitle(out string executableName)
