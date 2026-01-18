@@ -7,36 +7,36 @@ namespace WindowAnalyser;
 
 public class AppSettings
 {
-    public List<ApplicationDefinition> Applications { get; set; } = new();
-    public List<ExclusionDefinition> Exclusions { get; set; } = new();
-    public List<CategoryDefinition> Categories { get; set; } = new();
+    public List<ApplicationDefinition> Applications { get; } = [];
+    public List<ExclusionDefinition> Exclusions { get; } = [];
+    public List<CategoryDefinition> Categories { get; } = [];
 }
 
-public class ApplicationDefinition
+public abstract class ApplicationDefinition(string name)
 {
-    public string Name { get; set; }
-    public List<string> Include { get; set; } = new();
-    public List<string> Exclude { get; set; } = new();
+    public string Name { get; } = name;
+    public List<string> Include { get; } = [];
+    public List<string> Exclude { get; } = [];
 }
 
-public class ExclusionDefinition
+public abstract class ExclusionDefinition
 {
-    public List<string> Include { get; set; } = new();
+    public List<string> Include { get; } = [];
 }
 
-public class CategoryDefinition
+public abstract class CategoryDefinition(string name)
 {
-    public string Name { get; set; }
-    public List<string> IncludeApplications { get; set; } = new();
-    public List<string> ExcludeApplications { get; set; } = new();
+    public string Name { get; } = name;
+    public List<string> IncludeApplications { get; } = [];
+    public List<string> ExcludeApplications { get; } = [];
 }
 
 public class TimeEntry
 {
-    public DateTime DateTime { get; set; }
-    public TimeSpan Duration { get; set; } = new TimeSpan(0);
-    public string WindowTitle { get; set; }
-    public string Status { get; set; }
+    public DateTime DateTime { get; init; }
+    public TimeSpan Duration { get; init; } = new(0);
+    public required string WindowTitle { get; init; }
+    public required string Status { get; init; }
 }
 
 internal static class Program
@@ -85,7 +85,7 @@ internal static class Program
             .OrderBy(x => x.DateTime)
             .ToList();
 
-        var timeEntries2 = new List<TimeEntry>();
+        List<TimeEntry> entries = [];
 
         for (int i = 0; i < timeEntries.Count; i++)
         {
@@ -93,9 +93,10 @@ internal static class Program
             {
                 continue;
             }
+
             if (i >= timeEntries.Count - 1)
             {
-                timeEntries2.Add(new TimeEntry
+                entries.Add(new TimeEntry
                 {
                     DateTime = timeEntries[i].DateTime,
                     Duration = new TimeSpan(0),
@@ -105,7 +106,7 @@ internal static class Program
             }
             else
             {
-                timeEntries2.Add(new TimeEntry
+                entries.Add(new TimeEntry
                 {
                     DateTime = timeEntries[i].DateTime,
                     Duration = new TimeSpan(Math.Abs(timeEntries[i + 1].DateTime.Ticks - timeEntries[i].DateTime.Ticks)),
@@ -117,7 +118,7 @@ internal static class Program
         }
 
         // Group by Date, Application (extracted from WindowTitle), and Status. (WINDOWS tab)
-        var dailyAppUsage = timeEntries2
+        var dailyAppUsage = entries
             .GroupBy(x => new
             {
                 Date = x.DateTime.Date,
@@ -134,14 +135,14 @@ internal static class Program
             .OrderBy(x => x.Date)
             .ThenByDescending(x => x.TimeSpentMinutes);
 
-        var categorizedEntries = timeEntries2.Select(entry =>
+        var categorizedEntries = entries.Select(entry =>
         {
-            var appName = MatchApplication(entry.WindowTitle, settings.Applications);
+            string? appName = MatchApplication(entry.WindowTitle, settings.Applications);
             if (appName == null)
             {
                 return null;
             }
-            var categories = GetCategories(appName, settings.Categories);
+            List<string> categories = GetCategories(appName, settings.Categories);
             return new
             {
                 entry.Duration,
@@ -175,24 +176,21 @@ internal static class Program
             .OrderByDescending(x => x.TimeSpentMinutes)
             .ToList();
 
-
-        var otherWindows = timeEntries2.Select(entry =>
+        var otherWindows = entries.Select(entry =>
         {
-            var appName = MatchApplication(entry.WindowTitle, settings.Applications);
-            if (appName == null)
+            string? appName = MatchApplication(entry.WindowTitle, settings.Applications);
+            if (appName != null) return null;
+
+            appName = entry.WindowTitle;
+            List<string> categories = GetCategories(appName, settings.Categories);
+            return new
             {
-                appName = entry.WindowTitle;
-                var categories = GetCategories(appName, settings.Categories);
-                return new
-                {
-                    entry.Duration,
-                    entry.Status,
-                    AppName = appName,
-                    Categories = categories,
-                    WindowTitle = entry.WindowTitle
-                };
-            }
-            return null;
+                entry.Duration,
+                entry.Status,
+                AppName = appName,
+                Categories = categories,
+                WindowTitle = entry.WindowTitle
+            };
         }).Where(x => x != null).ToList()
             .GroupBy(x => new { x.WindowTitle, x.Status })
             .Select(g => new
@@ -216,16 +214,16 @@ internal static class Program
         Console.WriteLine($"Analysis complete. Output saved to {outputFile}");
     }
 
-    static bool IsExcluded(string title, List<ExclusionDefinition> exclusions)
+    private static bool IsExcluded(string title, List<ExclusionDefinition> exclusions)
     {
         return exclusions.Any(ex =>
             ex.Include.All(phrase =>
                 title.IndexOf(phrase, StringComparison.OrdinalIgnoreCase) >= 0));
     }
 
-    static string MatchApplication(string title, List<ApplicationDefinition> apps)
+    private static string? MatchApplication(string title, List<ApplicationDefinition> apps)
     {
-        foreach (var app in apps)
+        foreach (ApplicationDefinition app in apps)
         {
             bool includes = app.Include.All(phrase =>
                 title.IndexOf(phrase, StringComparison.OrdinalIgnoreCase) >= 0);
@@ -241,8 +239,8 @@ internal static class Program
 
     static List<string> GetCategories(string appName, List<CategoryDefinition> categories)
     {
-        var matched = new List<string>();
-        foreach (var category in categories)
+        List<string> matched = [];
+        foreach (CategoryDefinition category in categories)
         {
             bool included = category.IncludeApplications?.Any(a =>
                 appName.IndexOf(a, StringComparison.OrdinalIgnoreCase) >= 0) ?? false;
@@ -259,24 +257,22 @@ internal static class Program
     private static string ExtractAppName(string windowTitle) //TODO improve this
     {
         // Simple extraction - you might want to enhance this based on your window title format
+#pragma warning disable S3220 // Method calls should not resolve ambiguously to overloads with "params"
         return windowTitle.Split('-', '—').Last().Trim();
+#pragma warning restore S3220 // Method calls should not resolve ambiguously to overloads with "params"
     }
 
-    static double CalculateTimeSpent(List<TimeSpan> timestamps)
+    private static double CalculateTimeSpent(List<TimeSpan> timestamps)
     {
         if (timestamps.Count < 2)
             return 0;
 
-        double totalMinutes = 0;
-        for (int i = 0; i < timestamps.Count; i++)
-        {
-                totalMinutes += timestamps[i].TotalMinutes;
-        }
+        double totalMinutes = timestamps.Sum(t => t.TotalMinutes);
         return Math.Round(totalMinutes, 2);
     }
     private static void WriteWorksheet(XLWorkbook workbook, string sheetName, IEnumerable<object[]> rows, bool DisplayDate = false)
     {
-        var worksheet = workbook.Worksheets.Add(sheetName);
+        IXLWorksheet worksheet = workbook.Worksheets.Add(sheetName);
 
         int dateCol = 0;
         if(DisplayDate)
@@ -284,29 +280,33 @@ internal static class Program
             worksheet.Cell(1, 1).Value = "Date";
             dateCol = 1;
         }
-            
 
-        worksheet.Cell(1, 1 + dateCol).Value = sheetName.Contains("Window") ? "Window" : sheetName.Contains("Category") ? "Category" : "Application";
+        if (sheetName.Contains("Category"))
+        {
+            worksheet.Cell(1, 1 + dateCol).Value = sheetName.Contains("Window") ? "Window" : "Category";
+        }
+        else
+        {
+            worksheet.Cell(1, 1 + dateCol).Value = sheetName.Contains("Window") ? "Window" : "Application";
+        }
+
         worksheet.Cell(1, 2 + dateCol).Value = "Status";
         worksheet.Cell(1, 3 + dateCol).Value = "Time Spent (Minutes)";
         worksheet.Cell(1, 4 + dateCol).Value = "Time Spent (Hours)";
 
         int row = 2;
-        foreach (var dataRow in rows)
+        foreach (object[] dataRow in rows)
         {
             for (int col = 0; col < dataRow.Length; col++)
             {
                 if (dataRow[col] is double)
                     worksheet.Cell(row, col + 1).Value = Math.Round((double)dataRow[col], 2);
-                else if (dataRow[col] is DateTime)
-                worksheet.Cell(row, col + 1).Value = ((DateTime)dataRow[col]).ToString("yyyy-MM-dd");
-                else
-                    worksheet.Cell(row, col + 1).Value = dataRow[col].ToString();
+                else worksheet.Cell(row, col + 1).Value = dataRow[col] is DateTime ? (XLCellValue)((DateTime)dataRow[col]).ToString("yyyy-MM-dd") : (XLCellValue)dataRow[col].ToString();
             }
             row++;
         }
 
-        var range = worksheet.Range(1, 1, row - 1, 4 + +dateCol);
+        IXLRange range = worksheet.Range(1, 1, row - 1, 4 + +dateCol);
         range.Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
         range.Style.Border.InsideBorder = XLBorderStyleValues.Thin;
         worksheet.Columns().AdjustToContents();

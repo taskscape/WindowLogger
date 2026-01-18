@@ -22,7 +22,7 @@ internal static class Program
 
     [DllImport("user32.dll", SetLastError = true)]
     private static extern int GetWindowText(IntPtr hWnd, StringBuilder lpString, int nMaxCount);
-    
+
     [DllImport("user32.dll")]
     private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
 
@@ -71,7 +71,7 @@ internal static class Program
     {
         TimeSpan threshold = TimeSpan.FromMinutes(MinutesToInactive);
         bool isInactive = UserActivityDetector.IsUserInactive(threshold);
-        
+
         if (isInactive != _inactive)
         {
             _inactive = isInactive;
@@ -96,12 +96,12 @@ internal static class Program
 
             return;
         }
-        
+
         if (_inactive)
         {
             return;
         }
-        
+
         string? currentWindow = GetActiveWindowTitle(out string activeFileName);
         currentWindow = currentWindow?.Replace(",", "");
 
