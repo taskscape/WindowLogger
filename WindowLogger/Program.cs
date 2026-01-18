@@ -9,7 +9,7 @@ namespace WindowLogger;
 internal static class Program
 {
     private static Timer? _timer;
-    private const string LogFileName = "window_log.csv";
+    private const string LogFileName = "WindowLogger.csv";
     private static string? _lastWindowTitle = "";
     private static string? _lastExecutableName = "";
     private static bool _inactive;

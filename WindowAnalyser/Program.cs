@@ -7,28 +7,28 @@ namespace WindowAnalyser;
 
 public class AppSettings
 {
-    public List<ApplicationDefinition> Applications { get; } = [];
-    public List<ExclusionDefinition> Exclusions { get; } = [];
-    public List<CategoryDefinition> Categories { get; } = [];
+    public List<ApplicationDefinition> Applications { get; set; } = [];
+    public List<ExclusionDefinition> Exclusions { get; set; } = [];
+    public List<CategoryDefinition> Categories { get; set; } = [];
 }
 
-public abstract class ApplicationDefinition(string name)
+public class ApplicationDefinition
 {
-    public string Name { get; } = name;
-    public List<string> Include { get; } = [];
-    public List<string> Exclude { get; } = [];
+    public string Name { get; set; } = string.Empty;
+    public List<string> Include { get; set; } = [];
+    public List<string> Exclude { get; set; } = [];
 }
 
-public abstract class ExclusionDefinition
+public class ExclusionDefinition
 {
-    public List<string> Include { get; } = [];
+    public List<string> Include { get; set; } = [];
 }
 
-public abstract class CategoryDefinition(string name)
+public class CategoryDefinition
 {
-    public string Name { get; } = name;
-    public List<string> IncludeApplications { get; } = [];
-    public List<string> ExcludeApplications { get; } = [];
+    public string Name { get; set; } = string.Empty;
+    public List<string> IncludeApplications { get; set; } = [];
+    public List<string> ExcludeApplications { get; set; } = [];
 }
 
 public class TimeEntry
