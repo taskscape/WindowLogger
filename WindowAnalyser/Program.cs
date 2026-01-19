@@ -66,24 +66,29 @@ internal static class Program
         // Read and parse CSV.
         // Assumes CSV rows in the format:
         // yyyy-MM-dd HH:mm:ss,Window Title,Active/Inactive
-        var timeEntries = File.ReadAllLines(inputFile)
-            .Skip(1) // Skip header if exists
-            .Select(line =>
+        var allLines = File.ReadAllLines(inputFile).Skip(1).ToList(); // Skip header if exists
+        var timeEntries = new List<(DateTime DateTime, string WindowTitle, string Status)>();
+        
+        for (int lineIndex = 0; lineIndex < allLines.Count; lineIndex++)
+        {
+            string line = allLines[lineIndex];
+            string[] parts = line.Split(',');
+            if (parts.Length < 3)
             {
-                string[] parts = line.Split(',');
-                if (parts.Length < 3)
-                {
-                    throw new Exception("CSV format error: each row must have at least 3 columns.");
-                }
-                return new
-                {
-                    DateTime = DateTime.ParseExact(parts[0].Trim(), "yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture),
-                    WindowTitle = parts[1].Trim(),
-                    Status = parts[2].Trim()
-                };
-            })
-            .OrderBy(x => x.DateTime)
-            .ToList();
+                Console.WriteLine($"Warning: Skipping line {lineIndex + 2} (invalid format, expected 3 columns): {line}");
+                continue;
+            }
+            
+            if (!DateTime.TryParseExact(parts[0].Trim(), "yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture, DateTimeStyles.None, out DateTime dateTime))
+            {
+                Console.WriteLine($"Warning: Skipping line {lineIndex + 2} (invalid date format): {line}");
+                continue;
+            }
+            
+            timeEntries.Add((dateTime, parts[1].Trim(), parts[2].Trim()));
+        }
+        
+        timeEntries = timeEntries.OrderBy(x => x.DateTime).ToList();
 
         List<TimeEntry> entries = [];
 
