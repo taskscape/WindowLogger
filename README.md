@@ -87,13 +87,13 @@ dotnet run -- ../../WindowLogger/bin/Debug/net9.0/window_log.csv weekly_report.x
 
 When running with `dotnet run`, the log file is created in:
 
-```
+```csv
 WindowLogger/bin/Debug/net9.0/window_log.csv
 ```
 
 When running the compiled executable directly:
 
-```
+```csv
 <path-to-exe>/window_log.csv
 ```
 
@@ -101,7 +101,7 @@ When running the compiled executable directly:
 
 The CSV file contains three columns:
 
-```
+```text
 Timestamp,Window Title [Executable],Status
 ```
 
@@ -127,7 +127,7 @@ Timestamp,Window Title [Executable],Status
 
 The configuration file must be in:
 
-```
+```test
 WindowAnalyser/bin/Debug/net9.0/appsettings.json
 ```
 
