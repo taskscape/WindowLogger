@@ -3,3 +3,8 @@ bin/
 obj/
 .vs
 _ReSharper.Caches
+Build/
+CompleteApp/
+*.user
+*.suo
+*.log
