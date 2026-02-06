@@ -100,8 +100,7 @@ public class TrayApplicationContext : ApplicationContext
                 FileName = LoggerExe,
                 UseShellExecute = false,
                 CreateNoWindow = true,
-                // IMPORTANT: Do not force WorkingDirectory. Let the Logger run in its own folder.
-                // This ensures the CSV is created next to the Logger executable.
+                WorkingDirectory = Path.GetDirectoryName(LoggerExe)
             };
 
             _loggerProcess = Process.Start(startInfo);
