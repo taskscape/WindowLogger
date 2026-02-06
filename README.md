@@ -15,7 +15,7 @@ The system runs discretely in the system tray and consists of four components:
 
 ---
 
-## Quick Start (DLL Mode)
+## Quick Start
 
 ### Step 1: Build 
 
@@ -45,7 +45,7 @@ dotnet run
 
 - The logger starts monitoring your active windows every 100ms
 - Console displays each window change
-- Data is saved to `window_log.csv` in the same directory as the executable
+- Data is saved to `WindowLogger.csv` in the same directory as the executable
 - Press **Enter** to stop logging
 
 ### Step 3: Run the Controller
@@ -240,10 +240,10 @@ WindowAnalyser.exe <input-csv-file> <output-xlsx-file>
 
 ```bash
 # Absolute paths
-WindowAnalyser.exe C:\Logs\window_log.csv C:\Reports\weekly_report.xlsx
+WindowAnalyser.exe C:\Logs\WindowLogger.csv C:\Reports\weekly_report.xlsx
 
 # Relative paths
-WindowAnalyser.exe window_log.csv report.xlsx
+WindowAnalyser.exe WindowLogger.csv report.xlsx
 
 # Analyze multiple periods
 WindowAnalyser.exe logs\january.csv reports\january_analysis.xlsx
@@ -293,7 +293,7 @@ Daily breakdown of all window activity
 
 1. **First Run** - Without `appsettings.json`
    ```bash
-   WindowAnalyser.exe window_log.csv initial_report.xlsx
+   WindowAnalyser.exe WindowLogger.csv initial_report.xlsx
    ```
    - All windows appear in "Undefined Applications" tab
    - No categories are generated
@@ -310,7 +310,7 @@ Daily breakdown of all window activity
 
 4. **Re-run Analysis**
    ```bash
-   WindowAnalyser.exe window_log.csv categorized_report.xlsx
+   WindowAnalyser.exe WindowLogger.csv categorized_report.xlsx
    ```
    - Applications now appear in "Applications" tab
    - Categories are populated
@@ -636,7 +636,7 @@ Group applications into higher-level categories for aggregate reporting.
 
 1. Archive old logs regularly (e.g., monthly)
 2. Analyze and move the CSV file to a different location
-3. WindowLogger will create a new `window_log.csv` automatically
+3. WindowLogger will create a new `WindowLogger.csv` automatically
 
 ---
 
