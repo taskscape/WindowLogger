@@ -271,4 +271,3 @@ public class TrayApplicationContext : ApplicationContext
     }
 }
 
-}
