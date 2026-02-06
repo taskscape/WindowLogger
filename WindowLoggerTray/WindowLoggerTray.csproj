@@ -7,7 +7,6 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <StartupObject>WindowLoggerTray.Program</StartupObject>
-    <UseAppHost>false</UseAppHost> 
   </PropertyGroup>
 
   <ItemGroup>
@@ -19,5 +18,16 @@
     <ProjectReference Include="..\WindowAnalyser\WindowAnalyser.csproj" />
     <ProjectReference Include="..\WindowLoggerConfigGui\WindowLoggerConfigGui.csproj" />
   </ItemGroup>
+
+  <Target Name="CopyExecutables" AfterTargets="Build">
+    <Copy SourceFiles="..\WindowLogger\bin\$(Configuration)\net10.0\WindowLogger.exe" 
+          DestinationFolder="$(OutDir)" />
+    
+    <Copy SourceFiles="..\WindowAnalyser\bin\$(Configuration)\net10.0\WindowAnalyser.exe" 
+          DestinationFolder="$(OutDir)" />
+    
+    <Copy SourceFiles="..\WindowLoggerConfigGui\bin\$(Configuration)\net48\WindowLoggerConfigGui.exe" 
+          DestinationFolder="$(OutDir)" />
+  </Target>
 
 </Project>
