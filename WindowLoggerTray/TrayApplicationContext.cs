@@ -8,18 +8,18 @@ public class TrayApplicationContext : ApplicationContext
     private readonly NotifyIcon _notifyIcon;
     private Process? _loggerProcess;
     
-    // 1. Dynamically locate executable paths
+    // 1. Executables: Located in their respective project build folders
     private string LoggerExe => FindComponentPath("WindowLogger", "net10.0", "WindowLogger.exe");
     private string AnalyserExe => FindComponentPath("WindowAnalyser", "net10.0", "WindowAnalyser.exe");
     private string ConfigGuiExe => FindComponentPath("WindowLoggerConfigGui", "net48", "WindowLoggerConfigGui.exe");
     
-    // 2. The log file (CSV) is located where the LoggerExe is (in its bin folder)
+    // 2. Data File (CSV): Located in the WindowLogger directory (producer owns the data)
     private string LogFile => Path.Combine(Path.GetDirectoryName(LoggerExe) ?? string.Empty, "WindowLogger.csv");
     
-    // 3. The config file (JSON) is located where the AnalyserExe is (in its bin folder)
+    // 3. Config File: Located in the WindowAnalyser directory
     private string ConfigFile => Path.Combine(Path.GetDirectoryName(AnalyserExe) ?? string.Empty, "appsettings.json");
 
-    // 4. The Report (XLSX) should be generated "here" (Tray folder/Desktop) for easy access
+    // 4. Report File: Generated in the Tray directory (for easy user access)
     private string ReportFile => Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Report.xlsx");
 
     // Menu items
@@ -37,7 +37,6 @@ public class TrayApplicationContext : ApplicationContext
 
         _notifyIcon.ContextMenuStrip = CreateContextMenu();
         
-        // Check if the logger process is already running
         CheckExistingProcess();
     }
     
@@ -45,13 +44,15 @@ public class TrayApplicationContext : ApplicationContext
     {
         string baseDir = AppDomain.CurrentDomain.BaseDirectory;
         
-        // Check locally (Production/Copied mode)
+        // Check Local (if all files are copied to one folder)
         string localPath = Path.Combine(baseDir, fileName);
         if (File.Exists(localPath)) return localPath;
 
-        // Check in project structure (Development mode)
+        // Check Project Structure (Development mode)
+        // Go up from: WindowLoggerTray/bin/Debug/net10.0-windows/
         string config = baseDir.Contains("Release") ? "Release" : "Debug";
         string solutionDir = Path.GetFullPath(Path.Combine(baseDir, "..", "..", "..", ".."));
+        
         return Path.Combine(solutionDir, projectName, "bin", config, framework, fileName);
     }
 
@@ -100,6 +101,8 @@ public class TrayApplicationContext : ApplicationContext
                 FileName = LoggerExe,
                 UseShellExecute = false,
                 CreateNoWindow = true,
+                // CRITICAL: Set WorkingDirectory to the LOGGER'S folder.
+                // This ensures WindowLogger.csv is created in WindowLogger/bin/..., not in Tray folder.
                 WorkingDirectory = Path.GetDirectoryName(LoggerExe)
             };
 
@@ -141,9 +144,10 @@ public class TrayApplicationContext : ApplicationContext
             return;
         }
 
+        // Logic check: Verify if the CSV exists in the REMOTE (Logger) folder
         if (!File.Exists(LogFile))
         {
-            ShowError($"No log file found at:\n{LogFile}\n\nPlease run the logger first.");
+            ShowError($"No log file found at:\n{LogFile}\n\nPlease run the logger first to generate data.");
             return;
         }
 
@@ -152,11 +156,11 @@ public class TrayApplicationContext : ApplicationContext
             var startInfo = new ProcessStartInfo
             {
                 FileName = AnalyserExe,
-                // Pass full paths to LogFile (in Logger folder) and ReportFile (in Tray folder)
+                // Arguments: [Input: Path to Logger's CSV] [Output: Path to Tray's Report]
                 Arguments = $"\"{LogFile}\" \"{ReportFile}\"",
                 UseShellExecute = false,
                 CreateNoWindow = true,
-                // Analyser must start in its own folder to see appsettings.json
+                // Analyser needs to run in its own folder to find appsettings.json
                 WorkingDirectory = Path.GetDirectoryName(AnalyserExe) 
             };
 
@@ -169,7 +173,7 @@ public class TrayApplicationContext : ApplicationContext
             }
             else
             {
-                ShowError("Report file was not created.");
+                ShowError("Report file was not created. The log file might be empty.");
             }
         }
         catch (Exception ex)
@@ -204,7 +208,7 @@ public class TrayApplicationContext : ApplicationContext
 
     private void ClearData()
     {
-        if (MessageBox.Show("Are you sure you want to delete the log file? This cannot be undone.", 
+        if (MessageBox.Show($"Are you sure you want to delete the log file?\nTarget: {LogFile}", 
             "Clear Data", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) == DialogResult.Yes)
         {
             try
