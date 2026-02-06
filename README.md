@@ -1,135 +1,181 @@
 # Window Logger
 
-Window Logger helps you understand how you spend time on your PC by logging the active window and producing human-friendly Excel reports. The tooling now includes a background logger, a tray app, a small GUI for configuring rules, and an analyzer that produces richer reports (including seconds).
+Window Logger is a productivity tracking tool that monitors active windows and analyzes time spent across applications and categories. The system consists of a suite of .NET applications (Logger, Analyser, Tray Controller, Config GUI) that work together to provide insights into computer usage patterns.
 
 ---
 
 ## Overview
 
-Components:
+The system runs discretely in the system tray and consists of four components:
 
-- `WindowLogger` — background logger that records the active window and activity status to a CSV.
-- `WindowAnalyser` — analyzes the CSV and generates an Excel workbook report (multiple sheets).
-- `WindowLoggerTray` — lightweight tray app to start/stop the logger and access the GUI.
-- `WindowLoggerConfigGui` — small WinForms GUI to edit application/category rules.
-
-All components build from the same solution and a `CompleteApp` output folder is provided for distribution.
+1. **WindowLoggerTray** (Controller) - A system tray app that manages the background logger and provides quick access to actions.
+2. **WindowLogger** - A background process that monitors and logs active windows.
+3. **WindowAnalyser** - Analyzes logs and generates detailed Excel reports.
+4. **WindowLoggerConfigGui** - A visual editor for configuration rules.
 
 ---
 
-## Quick Start
+## Quick Start (DLL Mode)
 
-1) Build everything from the solution root:
+Since the application is designed to run as platform-independent .NET binaries (DLLs), the best way to start is to publish the solution.
+
+### Step 1: Build and Publish
+
+Run the following command in the solution directory to compile all components into a single folder (e.g., App). The flag `/p:UseAppHost=false` ensures that only DLL files are created, keeping the output clean.
 
 ```bash
-dotnet build WindowLogger.sln
+dotnet publish -c Release -o ./App /p:UseAppHost=false
 ```
 
-2) Run the logger directly (debug build):
+### Step 2: Run the Controller
 
-```powershell
-cd WindowLogger/bin/Debug/net9.0
-.\WindowLogger.exe
+Navigate to the created folder and start the tray application using the dotnet runtime:
+
+```bash
+cd App
+dotnet WindowLoggerTray.dll
 ```
 
-Or use the tray app / GUI from `CompleteApp`:
-
-```powershell
-cd CompleteApp
-.\WindowLoggerTray.exe    # starts tray
-.\WindowLoggerConfigGui.exe  # opens configuration GUI
-```
-
-3) Generate a report using the analyzer (the CSV filename used by the apps is `WindowLogger.csv`):
-
-```powershell
-dotnet run --project WindowAnalyser/WindowAnalyser.csproj -- CompleteApp/WindowLogger.csv CompleteApp/Report.xlsx
-```
-
-The analyzer writes `CompleteApp/Report.xlsx` — the default report filename used in packaging.
+**What happens:**
+- An icon appears in your System Tray (near the clock).
+- Right-click the icon to control the application.
 
 ---
 
-## Data & Files
+## Using the Controller
 
-- Log file: `WindowLogger.csv` (created next to the executable). Each row has:
+Once WindowLoggerTray is running, right-click the tray icon to access the menu:
 
-  Timestamp,Window Title [Executable],Status
-
-  Example:
-
-  2026-01-18 09:15:30,Visual Studio 2022 [devenv.exe],Active
-
-- Config: `appsettings.json` must be next to `WindowAnalyser.exe` (it is copied to output during build).
-
----
-
-## What’s new / Notes
-
-- The generated Excel report now includes a seconds column and by default orders time columns as: Hours, Minutes, Seconds — this makes totals and human-readable summaries easier to scan.
-- `CompleteApp` is a convenience output that contains all built artifacts (EXEs, DLLs, `Report.xlsx`, etc.) for distribution.
+- **Start Logging**: Launches WindowLogger.dll in the background (hidden).
+- **Stop Logging**: Safely stops the background logger process.
+- **Generate Report & Open**: Runs analysis on collected data and opens the Excel report automatically.
+- **Edit Configuration**:
+    - **GUI**: Opens the visual editor (WindowLoggerConfigGui.dll).
+    - **JSON**: Opens the raw appsettings.json file.
+- **Clear Collected Data**: Deletes the current log file to start fresh.
 
 ---
 
-## WindowAnalyser — Report Details
+## Data Storage
 
-The produced workbook contains these worksheets:
+### Log File
 
-- `Categories` — aggregates by category
-- `Applications` — aggregates by application name (from your rules)
-- `Undefined Applications` — windows not matched by any rule (useful to refine rules)
-- `Windows` — daily breakdown
+- **File Name:** WindowLogger.csv
+- **Location:** Created in the same directory where the application runs.
+- **Format:** Timestamp,Window Title [Executable],Status
 
-Time columns and ordering: Hours | Minutes | Seconds (seconds shown as an integer column).
+### Configuration File
 
-If you prefer a MM:SS formatted column instead, that can be added as an option.
+- **File Name:** appsettings.json
+- **Location:** Created in the same directory. Defines how windows are grouped into Applications and Categories.
+
+---
+
+## Manual Usage (Command Line)
+
+If you prefer to run components manually without the Tray Controller:
+
+**Running the Logger:**
+```bash
+dotnet WindowLogger.dll
+```
+
+**Running the Analyser:**
+```bash
+dotnet WindowAnalyser.dll WindowLogger.csv Report.xlsx
+```
+
+---
+
+## Report Details
+
+The generated Excel workbook contains 4 worksheets:
+
+1. **Categories**: Aggregates time by your defined categories (e.g., "Productivity", "Social").
+2. **Applications**: Aggregates time by defined application names.
+3. **Undefined Applications**: Shows windows that didn't match any rule (useful for refining config).
+4. **Windows**: Daily breakdown of all raw window activity.
+
+**Time Columns:** The report includes precise time tracking:
+Time Spent (Hours) | Time Spent (Minutes) | Time Spent (Seconds)
 
 ---
 
 ## Configuration (appsettings.json)
 
-Control how window titles map to logical application names and categories. Minimal structure:
+The configuration file controls how window titles are classified.
+
+### Structure Example
 
 ```json
 {
-  "applications": [ ... ],
-  "exclusions": [ ... ],
-  "categories": [ ... ]
+  "applications": [
+    {
+      "name": "Browser",
+      "include": [ "Firefox", "Chrome", "Edge" ],
+      "exclude": [ "taskbeat" ]
+    },
+    {
+      "name": "Visual Studio",
+      "include": [ "Visual Studio", "devenv.exe" ],
+      "exclude": []
+    },
+    {
+      "name": "TaskBeat",
+      "include": [ "Firefox", "taskbeat" ],
+      "exclude": []
+    }
+  ],
+  "categories": [
+    {
+      "name": "Development",
+      "includeApplications": [ "Visual Studio", "VS Code" ],
+      "excludeApplications": []
+    },
+    {
+      "name": "Productivity",
+      "includeApplications": [ "Notepad", "TaskBeat" ],
+      "excludeApplications": []
+    }
+  ],
+  "exclusions": [
+    {
+      "include": [ "private", "incognito" ]
+    }
+  ]
 }
 ```
 
-Tips:
-
-- Put the most specific rules first — matching is "first win".
-- Use executable names (`devenv.exe`, `chrome.exe`) for precise matches.
+### Matching Logic
+1. **Applications**: Matches if ALL include keywords are present and NONE of exclude keywords are present. Order matters (first match wins).
+2. **Categories**: Groups defined Applications together.
+3. **Exclusions**: Windows matching these rules are completely ignored (not logged in report).
 
 ---
 
-## Commands you’ll use frequently
+## Requirements
 
-Generate the default packaged report:
-
-```powershell
-dotnet run --project WindowAnalyser/WindowAnalyser.csproj -- CompleteApp/WindowLogger.csv CompleteApp/Report.xlsx
-```
-
-Publish the tray and GUI into `CompleteApp` (for distribution):
-
-```powershell
-dotnet publish WindowLoggerTray/WindowLoggerTray.csproj -c Release -o CompleteApp
-dotnet publish WindowLoggerConfigGui/WindowLoggerConfigGui.csproj -c Release -o CompleteApp
-```
+- **.NET Runtime**: .NET 9.0 / 10.0 or higher.
+- **Excel Viewer**: Microsoft Excel, LibreOffice, or compatible software.
 
 ---
 
 ## Troubleshooting
 
-- "Error reading appsettings.json": check `appsettings.json` exists and is valid JSON; the analyzer will fall back to defaults if missing.
-- "Report.xlsx locked": close the file in Excel before regenerating — the analyzer overwrites the output file.
-- CSV format error: ensure each row contains at least `Timestamp,Window Title,Status`.
+### "No log file found to analyze"
+**Solution:** Start the logging via the Tray icon and wait a few seconds before generating a report.
+
+### "Report file was not created"
+**Solution:** Ensure WindowLogger.csv exists and is not open in another program (like Excel) while generating a new report.
+
+### Report columns are empty
+**Solution:** Check the "Undefined Applications" tab in the Excel report to see the raw names, then update your appsettings.json to include them.
+
+### Log file grows too large
+**Solution:** Archive old logs regularly (e.g., monthly) and use the "Clear Collected Data" option in the Tray menu to start fresh.
 
 ---
 
 ## License
 
-This project is open source and available under the repository license.
+This project is open source.
