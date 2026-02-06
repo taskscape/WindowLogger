@@ -8,10 +8,11 @@ Window Logger is a productivity tracking tool that monitors active windows and a
 
 The system runs discretely in the system tray and consists of four components:
 
-1. **WindowLoggerTray** (Controller) - A system tray app that manages the background logger and provides quick access to actions.
 2. **WindowLogger** - A background process that monitors and logs active windows.
-3. **WindowAnalyser** - Analyzes logs and generates detailed Excel reports.
+3. **WindowLoggerTray** (Controller) - A system tray app that manages the background logger and provides quick access to actions.
 4. **WindowLoggerConfigGui** - A visual editor for configuration rules.
+5. **WindowAnalyser** - Analyzes logs and generates detailed Excel reports.
+
 
 ---
 
@@ -50,30 +51,33 @@ dotnet run
 
 ### Step 3: Run the Controller
 
-Navigate to the created folder and start the tray application using the dotnet runtime:
+Navigate to the Tray application's output directory and launch the executable.
 
-```bash
-cd App
-dotnet WindowLoggerTray.dll
+```powershell
+cd WindowLoggerTray/bin/Debug/net9.0-windows
+.\WindowLoggerTray.exe
 ```
+*(Note: The path might vary slightly depending on your configuration, e.g., Release mode)*
 
 **What happens:**
 - An icon appears in your System Tray (near the clock).
 - Right-click the icon to control the application.
 
+---
+
 ## Using the Controller
 
-Once WindowLoggerTray is running, right-click the tray icon to access the menu:
+Once **WindowLoggerTray** is running, right-click the tray icon to access the menu:
 
-- **Start Logging**: Launches WindowLogger.dll in the background (hidden).
+- **Start Logging**: Launches `WindowLogger.exe` in the background (hidden).
 - **Stop Logging**: Safely stops the background logger process.
-- **Generate Report & Open**: Runs analysis on collected data and opens the Excel report automatically.
+- **Generate Report & Open**: Runs analysis and opens the Excel report automatically.
 - **Edit Configuration**:
-    - **GUI**: Opens the visual editor (WindowLoggerConfigGui.dll).
-    - **JSON**: Opens the raw appsettings.json file.
+    - **GUI**: Opens the visual editor (`WindowLoggerConfigGui.exe`).
+    - **JSON**: Opens the raw `appsettings.json` file.
 - **Clear Collected Data**: Deletes the current log file to start fresh.
 
-### Step 3: Analyze the Data
+### Step 4: Analyze the Data
 
 Navigate to the WindowAnalyser output directory and run:
 
@@ -109,6 +113,12 @@ dotnet run -- ../../WindowLogger/bin/Debug/net9.0/WindowLogger.csv weekly_report
 
 - **File Name:** appsettings.json
 - **Location:** Created in the same directory. Defines how windows are grouped into Applications and Categories.
+
+### Report.xslx
+
+WindowLoggerTray generates **Report.xslx** file when you use the `Generate Report Open` option. It uses data from the **WindowLogger.csv** file.
+
+
 
 ---
 
