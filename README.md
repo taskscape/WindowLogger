@@ -17,17 +17,38 @@ The system runs discretely in the system tray and consists of four components:
 
 ## Quick Start (DLL Mode)
 
-Since the application is designed to run as platform-independent .NET binaries (DLLs), the best way to start is to publish the solution.
+### Step 1: Build 
 
-### Step 1: Build and Publish
-
-Run the following command in the solution directory to compile all components into a single folder (e.g., App). The flag `/p:UseAppHost=false` ensures that only DLL files are created, keeping the output clean.
+Build both applications using Visual Studio or the .NET CLI:
 
 ```bash
-dotnet publish -c Release -o ./App /p:UseAppHost=false
+dotnet build WindowLogger.sln
 ```
 
-### Step 2: Run the Controller
+### Step 2: Run the Logger
+
+Navigate to the WindowLogger output directory and run:
+
+```bash
+cd WindowLogger/bin/Debug/net9.0
+WindowLogger.exe
+```
+
+Or from the project directory:
+
+```bash
+cd WindowLogger
+dotnet run
+```
+
+**What happens:**
+
+- The logger starts monitoring your active windows every 100ms
+- Console displays each window change
+- Data is saved to `window_log.csv` in the same directory as the executable
+- Press **Enter** to stop logging
+
+### Step 3: Run the Controller
 
 Navigate to the created folder and start the tray application using the dotnet runtime:
 
@@ -40,8 +61,6 @@ dotnet WindowLoggerTray.dll
 - An icon appears in your System Tray (near the clock).
 - Right-click the icon to control the application.
 
----
-
 ## Using the Controller
 
 Once WindowLoggerTray is running, right-click the tray icon to access the menu:
@@ -53,6 +72,28 @@ Once WindowLoggerTray is running, right-click the tray icon to access the menu:
     - **GUI**: Opens the visual editor (WindowLoggerConfigGui.dll).
     - **JSON**: Opens the raw appsettings.json file.
 - **Clear Collected Data**: Deletes the current log file to start fresh.
+
+### Step 3: Analyze the Data
+
+Navigate to the WindowAnalyser output directory and run:
+
+```bash
+cd WindowAnalyser/bin/Debug/net9.0
+WindowAnalyser.exe WindowLogger.csv output.xlsx
+```
+
+Or from the project directory:
+
+```bash
+cd WindowAnalyser
+dotnet run -- <path-to-csv> <output-xlsx-path>
+```
+
+**Example:**
+
+```bash
+dotnet run -- ../../WindowLogger/bin/Debug/net9.0/WindowLogger.csv weekly_report.xlsx
+```
 
 ---
 
