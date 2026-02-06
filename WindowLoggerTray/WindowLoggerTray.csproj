@@ -21,16 +21,22 @@
 
   <Target Name="CopyExecutables" AfterTargets="Build">
     <Copy SourceFiles="..\WindowLogger\bin\$(Configuration)\net10.0\WindowLogger.exe" 
+          DestinationFolder="$(OutDir)" />
+    <Copy SourceFiles="..\WindowLogger\bin\$(Configuration)\net10.0\WindowLogger.runtimeconfig.json" 
           DestinationFolder="$(OutDir)" 
-          Condition="Exists('..\WindowLogger\bin\$(Configuration)\net10.0\WindowLogger.exe')" />
+          Condition="Exists('..\WindowLogger\bin\$(Configuration)\net10.0\WindowLogger.runtimeconfig.json')" />
 
     <Copy SourceFiles="..\WindowAnalyser\bin\$(Configuration)\net10.0\WindowAnalyser.exe" 
+          DestinationFolder="$(OutDir)" />
+    <Copy SourceFiles="..\WindowAnalyser\bin\$(Configuration)\net10.0\WindowAnalyser.runtimeconfig.json" 
           DestinationFolder="$(OutDir)" 
-          Condition="Exists('..\WindowAnalyser\bin\$(Configuration)\net10.0\WindowAnalyser.exe')" />
+          Condition="Exists('..\WindowAnalyser\bin\$(Configuration)\net10.0\WindowAnalyser.runtimeconfig.json')" />
 
     <Copy SourceFiles="..\WindowLoggerConfigGui\bin\$(Configuration)\net48\WindowLoggerConfigGui.exe" 
+          DestinationFolder="$(OutDir)" />
+    <Copy SourceFiles="..\WindowLoggerConfigGui\bin\$(Configuration)\net48\WindowLoggerConfigGui.exe.config" 
           DestinationFolder="$(OutDir)" 
-          Condition="Exists('..\WindowLoggerConfigGui\bin\$(Configuration)\net48\WindowLoggerConfigGui.exe')" />
+          Condition="Exists('..\WindowLoggerConfigGui\bin\$(Configuration)\net48\WindowLoggerConfigGui.exe.config')" />
   </Target>
 
 </Project>
