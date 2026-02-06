@@ -8,13 +8,19 @@ public class TrayApplicationContext : ApplicationContext
     private readonly NotifyIcon _notifyIcon;
     private Process? _loggerProcess;
     
-    // Executable names (located in application directory)
+    // 1. Dynamically locate executable paths
     private string LoggerExe => FindComponentPath("WindowLogger", "net10.0", "WindowLogger.exe");
     private string AnalyserExe => FindComponentPath("WindowAnalyser", "net10.0", "WindowAnalyser.exe");
     private string ConfigGuiExe => FindComponentPath("WindowLoggerConfigGui", "net48", "WindowLoggerConfigGui.exe");
-    private string LogFile => Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "WindowLogger.csv");
+    
+    // 2. The log file (CSV) is located where the LoggerExe is (in its bin folder)
+    private string LogFile => Path.Combine(Path.GetDirectoryName(LoggerExe) ?? string.Empty, "WindowLogger.csv");
+    
+    // 3. The config file (JSON) is located where the AnalyserExe is (in its bin folder)
+    private string ConfigFile => Path.Combine(Path.GetDirectoryName(AnalyserExe) ?? string.Empty, "appsettings.json");
+
+    // 4. The Report (XLSX) should be generated "here" (Tray folder/Desktop) for easy access
     private string ReportFile => Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Report.xlsx");
-    private string ConfigFile => Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "appsettings.json");
 
     // Menu items
     private ToolStripMenuItem _startLoggingItem = null!;
@@ -24,7 +30,6 @@ public class TrayApplicationContext : ApplicationContext
     {
         _notifyIcon = new NotifyIcon
         {
-            // Use the application icon; replace with a custom .ico if desired
             Icon = SystemIcons.Application, 
             Visible = true,
             Text = "Window Logger Controller"
@@ -40,31 +45,20 @@ public class TrayApplicationContext : ApplicationContext
     {
         string baseDir = AppDomain.CurrentDomain.BaseDirectory;
         
-        // 1. Check if the file exists in the current directory (Production/Copied mode)
+        // Check locally (Production/Copied mode)
         string localPath = Path.Combine(baseDir, fileName);
         if (File.Exists(localPath)) return localPath;
 
-        // 2. If not found, try to locate it in the source project build folders (Development mode)
-        // Expected structure: Solution/ProjectName/bin/Configuration/Framework/File.exe
-        // Tray location: Solution/WindowLoggerTray/bin/Configuration/Framework/
-        
-        // Detect configuration (Debug/Release) based on current path
+        // Check in project structure (Development mode)
         string config = baseDir.Contains("Release") ? "Release" : "Debug";
-
-        // Navigate 4 levels up to the Solution directory
         string solutionDir = Path.GetFullPath(Path.Combine(baseDir, "..", "..", "..", ".."));
-        
-        string devPath = Path.Combine(solutionDir, projectName, "bin", config, framework, fileName);
-        
-        // Return the development path (even if missing, it will be handled by the caller)
-        return devPath;
+        return Path.Combine(solutionDir, projectName, "bin", config, framework, fileName);
     }
 
     private ContextMenuStrip CreateContextMenu()
     {
         var menu = new ContextMenuStrip();
 
-        // Logger control
         _startLoggingItem = new ToolStripMenuItem("Start Logging", null, (s, e) => StartLogger());
         _stopLoggingItem = new ToolStripMenuItem("Stop Logging", null, (s, e) => StopLogger());
         
@@ -72,22 +66,17 @@ public class TrayApplicationContext : ApplicationContext
         menu.Items.Add(_stopLoggingItem);
         menu.Items.Add(new ToolStripSeparator());
 
-        // Analysis
         menu.Items.Add("Generate Report & Open", null, (s, e) => RunAnalysis());
         menu.Items.Add(new ToolStripSeparator());
 
-        // Configuration
         menu.Items.Add("Edit Configuration (GUI)", null, (s, e) => OpenConfigGui());
         menu.Items.Add("Edit Configuration (JSON)", null, (s, e) => OpenConfigJson());
         
-        // Data
         var clearDataMenu = new ToolStripMenuItem("Clear Collected Data");
         clearDataMenu.Click += (s, e) => ClearData();
         menu.Items.Add(clearDataMenu);
         
         menu.Items.Add(new ToolStripSeparator());
-
-        // Exit
         menu.Items.Add("Exit", null, (s, e) => Exit());
 
         UpdateMenuState();
@@ -100,7 +89,7 @@ public class TrayApplicationContext : ApplicationContext
 
         if (!File.Exists(LoggerExe))
         {
-            ShowError($"Could not find {LoggerExe} in the application directory.\nPath: {AppDomain.CurrentDomain.BaseDirectory}");
+            ShowError($"Could not find {LoggerExe}.");
             return;
         }
 
@@ -110,12 +99,13 @@ public class TrayApplicationContext : ApplicationContext
             {
                 FileName = LoggerExe,
                 UseShellExecute = false,
-                CreateNoWindow = true, // Run with a hidden console window
-                WorkingDirectory = AppDomain.CurrentDomain.BaseDirectory
+                CreateNoWindow = true,
+                // IMPORTANT: Do not force WorkingDirectory. Let the Logger run in its own folder.
+                // This ensures the CSV is created next to the Logger executable.
             };
 
             _loggerProcess = Process.Start(startInfo);
-            _notifyIcon.ShowBalloonTip(3000, "Window Logger", "Logging started in background.", ToolTipIcon.Info);
+            _notifyIcon.ShowBalloonTip(3000, "Window Logger", "Logging started.", ToolTipIcon.Info);
         }
         catch (Exception ex)
         {
@@ -131,7 +121,6 @@ public class TrayApplicationContext : ApplicationContext
 
         try
         {
-            // Terminate the process; logger flushes output on exit.
             _loggerProcess.Kill();
             _loggerProcess.WaitForExit(1000);
             _loggerProcess = null;
@@ -155,36 +144,33 @@ public class TrayApplicationContext : ApplicationContext
 
         if (!File.Exists(LogFile))
         {
-            ShowError("No log file found to analyze. Please run the logger first.");
+            ShowError($"No log file found at:\n{LogFile}\n\nPlease run the logger first.");
             return;
         }
 
         try
         {
-            // Run analyzer and open the generated report
             var startInfo = new ProcessStartInfo
             {
                 FileName = AnalyserExe,
+                // Pass full paths to LogFile (in Logger folder) and ReportFile (in Tray folder)
                 Arguments = $"\"{LogFile}\" \"{ReportFile}\"",
                 UseShellExecute = false,
                 CreateNoWindow = true,
-                WorkingDirectory = Path.GetDirectoryName(AnalyserExe)
+                // Analyser must start in its own folder to see appsettings.json
+                WorkingDirectory = Path.GetDirectoryName(AnalyserExe) 
             };
 
             var process = Process.Start(startInfo);
             process?.WaitForExit();
 
-            // Open the generated report
             if (File.Exists(ReportFile))
             {
-                new Process
-                {
-                    StartInfo = new ProcessStartInfo(ReportFile) { UseShellExecute = true }
-                }.Start();
+                new Process { StartInfo = new ProcessStartInfo(ReportFile) { UseShellExecute = true } }.Start();
             }
             else
             {
-                ShowError("Report file was not created. Check if the log file is empty.");
+                ShowError("Report file was not created.");
             }
         }
         catch (Exception ex)
@@ -207,24 +193,15 @@ public class TrayApplicationContext : ApplicationContext
 
     private void OpenConfigJson()
     {
-    string configPath = ConfigFile;
-    
-    if (!File.Exists(configPath))
-    {
-         string analyserDir = Path.GetDirectoryName(AnalyserExe) ?? string.Empty;
-         string altConfig = Path.Combine(analyserDir, "appsettings.json");
-         if (File.Exists(altConfig)) configPath = altConfig;
+        if (File.Exists(ConfigFile))
+        {
+            Process.Start(new ProcessStartInfo(ConfigFile) { UseShellExecute = true });
+        }
+        else
+        {
+            ShowError($"{ConfigFile} not found.");
+        }
     }
-
-    if (File.Exists(configPath))
-    {
-        Process.Start(new ProcessStartInfo(configPath) { UseShellExecute = true });
-    }
-    else
-    {
-        ShowError($"appsettings.json not found.");
-    }
-}
 
     private void ClearData()
     {
@@ -251,7 +228,6 @@ public class TrayApplicationContext : ApplicationContext
 
     private void CheckExistingProcess()
     {
-        // Detect any running logger process by name
         var existing = Process.GetProcessesByName(Path.GetFileNameWithoutExtension(LoggerExe));
         if (existing.Length > 0)
         {
@@ -274,7 +250,6 @@ public class TrayApplicationContext : ApplicationContext
 
     private void Exit()
     {
-        // Stop logger on exit
         if (_loggerProcess != null && !_loggerProcess.HasExited)
         {
             StopLogger();
