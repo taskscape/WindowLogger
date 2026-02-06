@@ -9,12 +9,12 @@ public class TrayApplicationContext : ApplicationContext
     private Process? _loggerProcess;
     
     // Executable names (located in application directory)
-    private const string LoggerExe = "WindowLogger.exe";
-    private const string AnalyserExe = "WindowAnalyser.exe";
-    private const string ConfigGuiExe = "WindowLoggerConfigGui.exe";
-    private const string ConfigFile = "appsettings.json";
-    private const string LogFile = "WindowLogger.csv";
-    private const string ReportFile = "Report.xlsx";
+    private string LoggerExe => FindComponentPath("WindowLogger", "net10.0", "WindowLogger.exe");
+    private string AnalyserExe => FindComponentPath("WindowAnalyser", "net10.0", "WindowAnalyser.exe");
+    private string ConfigGuiExe => FindComponentPath("WindowLoggerConfigGui", "net48", "WindowLoggerConfigGui.exe");
+    private string LogFile => Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "WindowLogger.csv");
+    private string ReportFile => Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Report.xlsx");
+    private string ConfigFile => Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "appsettings.json");
 
     // Menu items
     private ToolStripMenuItem _startLoggingItem = null!;
@@ -34,6 +34,30 @@ public class TrayApplicationContext : ApplicationContext
         
         // Check if the logger process is already running
         CheckExistingProcess();
+    }
+    
+    private string FindComponentPath(string projectName, string framework, string fileName)
+    {
+        string baseDir = AppDomain.CurrentDomain.BaseDirectory;
+        
+        // 1. Check if the file exists in the current directory (Production/Copied mode)
+        string localPath = Path.Combine(baseDir, fileName);
+        if (File.Exists(localPath)) return localPath;
+
+        // 2. If not found, try to locate it in the source project build folders (Development mode)
+        // Expected structure: Solution/ProjectName/bin/Configuration/Framework/File.exe
+        // Tray location: Solution/WindowLoggerTray/bin/Configuration/Framework/
+        
+        // Detect configuration (Debug/Release) based on current path
+        string config = baseDir.Contains("Release") ? "Release" : "Debug";
+
+        // Navigate 4 levels up to the Solution directory
+        string solutionDir = Path.GetFullPath(Path.Combine(baseDir, "..", "..", "..", ".."));
+        
+        string devPath = Path.Combine(solutionDir, projectName, "bin", config, framework, fileName);
+        
+        // Return the development path (even if missing, it will be handled by the caller)
+        return devPath;
     }
 
     private ContextMenuStrip CreateContextMenu()
@@ -144,7 +168,7 @@ public class TrayApplicationContext : ApplicationContext
                 Arguments = $"\"{LogFile}\" \"{ReportFile}\"",
                 UseShellExecute = false,
                 CreateNoWindow = true,
-                WorkingDirectory = AppDomain.CurrentDomain.BaseDirectory
+                WorkingDirectory = Path.GetDirectoryName(AnalyserExe)
             };
 
             var process = Process.Start(startInfo);
@@ -183,16 +207,24 @@ public class TrayApplicationContext : ApplicationContext
 
     private void OpenConfigJson()
     {
-        if (File.Exists(ConfigFile))
-        {
-            // Open in the default JSON/text editor
-            Process.Start(new ProcessStartInfo(ConfigFile) { UseShellExecute = true });
-        }
-        else
-        {
-            ShowError($"{ConfigFile} not found. Run the analyzer to generate a default file or create it manually.");
-        }
+    string configPath = ConfigFile;
+    
+    if (!File.Exists(configPath))
+    {
+         string analyserDir = Path.GetDirectoryName(AnalyserExe) ?? string.Empty;
+         string altConfig = Path.Combine(analyserDir, "appsettings.json");
+         if (File.Exists(altConfig)) configPath = altConfig;
     }
+
+    if (File.Exists(configPath))
+    {
+        Process.Start(new ProcessStartInfo(configPath) { UseShellExecute = true });
+    }
+    else
+    {
+        ShowError($"appsettings.json not found.");
+    }
+}
 
     private void ClearData()
     {
