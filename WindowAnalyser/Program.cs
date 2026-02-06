@@ -1,4 +1,4 @@
-﻿using System.Data;
+﻿﻿using System.Data;
 using System.Globalization;
 using ClosedXML.Excel;
 using Newtonsoft.Json;
@@ -135,8 +135,7 @@ internal static class Program
                 Date = g.Key.Date,
                 Application = g.Key.App,
                 Status = g.Key.Status,
-                TimeSpentMinutes = CalculateTimeSpent(g.Select(x => x.Duration).ToList()),
-                TimeSpentSeconds = CalculateTimeSpentSeconds(g.Select(x => x.Duration).ToList())
+                TimeSpentMinutes = CalculateTimeSpent(g.Select(x => x.Duration).ToList())
             })
             .OrderBy(x => x.Date)
             .ThenByDescending(x => x.TimeSpentMinutes);
@@ -165,8 +164,7 @@ internal static class Program
             {
                 Application = g.Key.AppName,
                 Status = g.Key.Status,
-                TimeSpentMinutes = CalculateTimeSpent(g.Select(x => x!.Duration).ToList()),
-                TimeSpentSeconds = CalculateTimeSpentSeconds(g.Select(x => x!.Duration).ToList())
+                TimeSpentMinutes = CalculateTimeSpent(g.Select(x => x!.Duration).ToList())
             })
             .OrderByDescending(x => x.TimeSpentMinutes)
             .ToList();
@@ -178,8 +176,7 @@ internal static class Program
             {
                 Category = g.Key.Category,
                 Status = g.Key.Status,
-                TimeSpentMinutes = CalculateTimeSpent(g.Select(x => x.Duration).ToList()),
-                TimeSpentSeconds = CalculateTimeSpentSeconds(g.Select(x => x.Duration).ToList())
+                TimeSpentMinutes = CalculateTimeSpent(g.Select(x => x.Duration).ToList())
             })
             .OrderByDescending(x => x.TimeSpentMinutes)
             .ToList();
@@ -205,18 +202,17 @@ internal static class Program
             {
                 Window = g.Key.WindowTitle,
                 Status = g.Key.Status,
-                TimeSpentMinutes = CalculateTimeSpent(g.Select(x => x!.Duration).ToList()),
-                TimeSpentSeconds = CalculateTimeSpentSeconds(g.Select(x => x!.Duration).ToList())
+                TimeSpentMinutes = CalculateTimeSpent(g.Select(x => x!.Duration).ToList())
             })
             .OrderByDescending(x => x.TimeSpentMinutes)
             .ToList();
 
         using (XLWorkbook workbook = new XLWorkbook())
         {
-            WriteWorksheet(workbook, "Categories", groupedCategories.Select(x => new object[] { x.Category, x.Status, Math.Round(x.TimeSpentMinutes / 60.0, 2), x.TimeSpentMinutes, x.TimeSpentSeconds }));
-            WriteWorksheet(workbook, "Applications", groupedApps.Select(x => new object[] { x.Application, x.Status, Math.Round(x.TimeSpentMinutes / 60.0, 2), x.TimeSpentMinutes, x.TimeSpentSeconds }));
-            WriteWorksheet(workbook, "Undefined Applications", otherWindows.Select(x => new object[] { x.Window, x.Status, Math.Round(x.TimeSpentMinutes / 60.0, 2), x.TimeSpentMinutes, x.TimeSpentSeconds }));
-            WriteWorksheet(workbook, "Windows", dailyAppUsage.Select(x => new object[] { x.Date, x.Application, x.Status, Math.Round(x.TimeSpentMinutes / 60.0, 2), x.TimeSpentMinutes, x.TimeSpentSeconds }), true);
+            WriteWorksheet(workbook, "Categories", groupedCategories.Select(x => new object[] { x.Category, x.Status, x.TimeSpentMinutes, Math.Round(x.TimeSpentMinutes / 60.0, 2) }));
+            WriteWorksheet(workbook, "Applications", groupedApps.Select(x => new object[] { x.Application, x.Status, x.TimeSpentMinutes, Math.Round(x.TimeSpentMinutes / 60.0, 2) }));
+            WriteWorksheet(workbook, "Undefined Applications", otherWindows.Select(x => new object[] { x.Window, x.Status, x.TimeSpentMinutes, Math.Round(x.TimeSpentMinutes / 60.0, 2) }));
+            WriteWorksheet(workbook, "Windows", dailyAppUsage.Select(x => new object[] { x.Date, x.Application, x.Status, x.TimeSpentMinutes, Math.Round(x.TimeSpentMinutes / 60.0, 2) }), true);
             workbook.SaveAs(outputFile);
         }
 
@@ -279,83 +275,43 @@ internal static class Program
         double totalMinutes = timestamps.Sum(t => t.TotalMinutes);
         return Math.Round(totalMinutes, 2);
     }
-    private static int CalculateTimeSpentSeconds(List<TimeSpan> timestamps)
-    {
-        if (timestamps == null || timestamps.Count == 0)
-            return 0;
-
-        double totalSeconds = timestamps.Sum(t => t.TotalSeconds);
-        return (int)Math.Round(totalSeconds, 0);
-    }
     private static void WriteWorksheet(XLWorkbook workbook, string sheetName, IEnumerable<object[]> rows, bool DisplayDate = false)
     {
         IXLWorksheet worksheet = workbook.Worksheets.Add(sheetName);
 
         int dateCol = 0;
-        if (DisplayDate)
+        if(DisplayDate)
         {
             worksheet.Cell(1, 1).Value = "Date";
             dateCol = 1;
         }
 
-        // Determine header base position after optional Date column
-        int baseCol = 1 + dateCol;
-
         if (sheetName.Contains("Category"))
         {
-            worksheet.Cell(1, baseCol).Value = sheetName.Contains("Window") ? "Window" : "Category";
+            worksheet.Cell(1, 1 + dateCol).Value = sheetName.Contains("Window") ? "Window" : "Category";
         }
         else
         {
-            worksheet.Cell(1, baseCol).Value = sheetName.Contains("Window") ? "Window" : "Application";
+            worksheet.Cell(1, 1 + dateCol).Value = sheetName.Contains("Window") ? "Window" : "Application";
         }
 
-        worksheet.Cell(1, baseCol + 1).Value = "Status";
-
-        // Inspect rows to decide how many time columns are present
-        var firstRow = rows.FirstOrDefault();
-        int dataCols = firstRow != null ? firstRow.Length : 4; // fallback
-
-        // Expect time columns in order: Hours, Minutes, Seconds (Seconds optional)
-        worksheet.Cell(1, baseCol + 2).Value = "Time Spent (Hours)";
-        worksheet.Cell(1, baseCol + 3).Value = "Time Spent (Minutes)";
-        if (dataCols >= 5)
-        {
-            worksheet.Cell(1, baseCol + 4).Value = "Time Spent (Seconds)";
-        }
+        worksheet.Cell(1, 2 + dateCol).Value = "Status";
+        worksheet.Cell(1, 3 + dateCol).Value = "Time Spent (Minutes)";
+        worksheet.Cell(1, 4 + dateCol).Value = "Time Spent (Hours)";
 
         int row = 2;
         foreach (object[] dataRow in rows)
         {
             for (int col = 0; col < dataRow.Length; col++)
             {
-                var value = dataRow[col];
-                int colIndex = col + 1; // data rows already include Date when DisplayDate=true
-                if (value is double d)
-                {
-                    worksheet.Cell(row, colIndex).Value = Math.Round(d, 2);
-                }
-                else if (value is int i)
-                {
-                    worksheet.Cell(row, colIndex).Value = i;
-                }
-                else if (value is long l)
-                {
-                    worksheet.Cell(row, colIndex).Value = l;
-                }
-                else if (value is DateTime dt)
-                {
-                    worksheet.Cell(row, colIndex).Value = dt.ToString("yyyy-MM-dd");
-                }
-                else
-                {
-                    worksheet.Cell(row, colIndex).Value = value?.ToString() ?? string.Empty;
-                }
+                if (dataRow[col] is double)
+                    worksheet.Cell(row, col + 1).Value = Math.Round((double)dataRow[col], 2);
+                else worksheet.Cell(row, col + 1).Value = dataRow[col] is DateTime ? (XLCellValue)((DateTime)dataRow[col]).ToString("yyyy-MM-dd") : (XLCellValue)dataRow[col].ToString();
             }
             row++;
         }
 
-        IXLRange range = worksheet.Range(1, 1, row - 1, baseCol + dataCols - 1);
+        IXLRange range = worksheet.Range(1, 1, row - 1, 4 + +dateCol);
         range.Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
         range.Style.Border.InsideBorder = XLBorderStyleValues.Thin;
         worksheet.Columns().AdjustToContents();
