@@ -43,17 +43,18 @@ public class TrayApplicationContext : ApplicationContext
     private string FindComponentPath(string projectName, string framework, string fileName)
     {
         string baseDir = AppDomain.CurrentDomain.BaseDirectory;
-        
-        // Check Local (if all files are copied to one folder)
+        // Prefer the project build output (development mode) if it exists
+        string config = baseDir.Contains("Release") ? "Release" : "Debug";
+        string solutionDir = Path.GetFullPath(Path.Combine(baseDir, "..", "..", "..", ".."));
+        string projectPath = Path.Combine(solutionDir, projectName, "bin", config, framework, fileName);
+        if (File.Exists(projectPath)) return projectPath;
+
+        // Fallback to a local copy in the tray folder
         string localPath = Path.Combine(baseDir, fileName);
         if (File.Exists(localPath)) return localPath;
 
-        // Check Project Structure (Development mode)
-        // Go up from: WindowLoggerTray/bin/Debug/net10.0-windows/
-        string config = baseDir.Contains("Release") ? "Release" : "Debug";
-        string solutionDir = Path.GetFullPath(Path.Combine(baseDir, "..", "..", "..", ".."));
-        
-        return Path.Combine(solutionDir, projectName, "bin", config, framework, fileName);
+        // Last-resort: return the project path even if missing (caller may show helpful errors)
+        return projectPath;
     }
 
     private ContextMenuStrip CreateContextMenu()
@@ -101,10 +102,18 @@ public class TrayApplicationContext : ApplicationContext
                 FileName = LoggerExe,
                 UseShellExecute = false,
                 CreateNoWindow = true,
-                // CRITICAL: Set WorkingDirectory to the LOGGER'S folder.
-                // This ensures WindowLogger.csv is created in WindowLogger/bin/..., not in Tray folder.
                 WorkingDirectory = Path.GetDirectoryName(LoggerExe)
             };
+
+            // Pass explicit log file path as first argument so the logger can write to the intended folder
+            try
+            {
+                startInfo.Arguments = $"\"{LogFile}\"";
+            }
+            catch
+            {
+                // ignore formatting issues; starting without args is better than failing here
+            }
 
             _loggerProcess = Process.Start(startInfo);
             _notifyIcon.ShowBalloonTip(3000, "Window Logger", "Logging started.", ToolTipIcon.Info);
@@ -260,4 +269,6 @@ public class TrayApplicationContext : ApplicationContext
         _notifyIcon.Visible = false;
         Application.Exit();
     }
+}
+
 }
