@@ -600,7 +600,7 @@ Group applications into higher-level categories for aggregate reporting.
 
 ---
 
-## 🛠️ Troubleshooting
+## Troubleshooting
 
 ### "Error reading appsettings.json"
 
@@ -640,6 +640,6 @@ Group applications into higher-level categories for aggregate reporting.
 
 ---
 
-## 📄 License
+## License
 
 This project is open source and available under the repository license.
