@@ -49,7 +49,7 @@ dotnet run
 - Data is saved to `WindowLogger.csv` in the same directory as the executable
 - Press **Enter** to stop logging
 
-### Step 3: Run the Controller
+### Alternative Step 2: Run the Controller and run the Logger
 
 Navigate to the Tray application's output directory and launch the executable.
 
@@ -84,7 +84,7 @@ Once **WindowLoggerTray** is running, right-click the tray icon to access the me
     - **JSON**: Opens the raw `appsettings.json` file.
 - **Clear Collected Data**: Deletes the current log file to start fresh.
 
-### Step 4: Analyze the Data
+### Step 3: Analyze the Data
 
 Navigate to the WindowAnalyser output directory and run:
 
