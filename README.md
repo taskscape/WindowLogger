@@ -54,10 +54,17 @@ dotnet run
 Navigate to the Tray application's output directory and launch the executable.
 
 ```powershell
-cd WindowLoggerTray/bin/Debug/net9.0-windows
+cd WindowLoggerTray/bin/Debug/net10.0-windows
 .\WindowLoggerTray.exe
 ```
 *(Note: The path might vary slightly depending on your configuration, e.g., Release mode)*
+
+Or from the project directory:
+
+```bash
+cd WindowLoggerTray
+dotnet run
+```
 
 **What happens:**
 - An icon appears in your System Tray (near the clock).
