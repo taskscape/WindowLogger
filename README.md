@@ -31,7 +31,7 @@ dotnet build WindowLogger.sln
 Navigate to the WindowLogger output directory and run:
 
 ```bash
-cd WindowLogger/bin/Debug/net9.0
+cd WindowLogger/bin/Debug/net10.0
 WindowLogger.exe
 ```
 
