@@ -1,34 +1,29 @@
-﻿# Window Logger
+# Window Logger
 
-Window Logger is a productivity tracking tool that monitors active windows and analyzes time spent across applications and categories. The system consists of two .NET console applications that work together to provide insights into computer usage patterns.
-
----
-
-## 🎯 Overview
-
-The system has two main components:
-
-1. **WindowLogger** - Monitors and logs active windows continuously
-2. **WindowAnalyser** - Analyzes logs and generates Excel reports
+Window Logger is a productivity tracking tool that monitors active windows and analyzes time spent across applications and categories. The system consists of a suite of .NET applications (Logger, Analyser, Tray Controller, Config GUI) that work together to provide insights into computer usage patterns.
 
 ---
 
-## 🚀 Quick Start
+## Overview
 
-### Step 1: Build the Projects
+The system runs discretely in the system tray and consists of four components:
+
+2. **WindowLogger** - A background process that monitors and logs active windows.
+3. **WindowLoggerTray** (Controller) - A system tray app that manages the background logger and provides quick access to actions.
+4. **WindowLoggerConfigGui** - A visual editor for configuration rules.
+5. **WindowAnalyser** - Analyzes logs and generates detailed Excel reports.
+
+
+---
+
+## Quick Start
+
+### Step 1: Build 
 
 Build both applications using Visual Studio or the .NET CLI:
 
 ```bash
-# From the solution directory
 dotnet build WindowLogger.sln
-```
-
-Or build individual projects:
-
-```bash
-dotnet build WindowLogger/WindowLogger.csproj
-dotnet build WindowAnalyser/WindowAnalyser.csproj
 ```
 
 ### Step 2: Run the Logger
@@ -36,7 +31,7 @@ dotnet build WindowAnalyser/WindowAnalyser.csproj
 Navigate to the WindowLogger output directory and run:
 
 ```bash
-cd WindowLogger/bin/Debug/net9.0
+cd WindowLogger/bin/Debug/net10.0
 WindowLogger.exe
 ```
 
@@ -51,8 +46,43 @@ dotnet run
 
 - The logger starts monitoring your active windows every 100ms
 - Console displays each window change
-- Data is saved to `window_log.csv` in the same directory as the executable
+- Data is saved to `WindowLogger.csv` in the same directory as the executable
 - Press **Enter** to stop logging
+
+### Alternative Step 2: Run the Controller and run the Logger
+
+Navigate to the Tray application's output directory and launch the executable.
+
+```powershell
+cd WindowLoggerTray/bin/Debug/net10.0-windows
+.\WindowLoggerTray.exe
+```
+*(Note: The path might vary slightly depending on your configuration, e.g., Release mode)*
+
+Or from the project directory:
+
+```bash
+cd WindowLoggerTray
+dotnet run
+```
+
+**What happens:**
+- An icon appears in your System Tray (near the clock).
+- Right-click the icon to control the application.
+
+---
+
+## Using the Controller
+
+Once **WindowLoggerTray** is running, right-click the tray icon to access the menu:
+
+- **Start Logging**: Launches `WindowLogger.exe` in the background (hidden).
+- **Stop Logging**: Safely stops the background logger process.
+- **Generate Report & Open**: Runs analysis and opens the Excel report automatically.
+- **Edit Configuration**:
+    - **GUI**: Opens the visual editor (`WindowLoggerConfigGui.exe`).
+    - **JSON**: Opens the raw `appsettings.json` file.
+- **Clear Collected Data**: Deletes the current log file to start fresh.
 
 ### Step 3: Analyze the Data
 
@@ -60,7 +90,7 @@ Navigate to the WindowAnalyser output directory and run:
 
 ```bash
 cd WindowAnalyser/bin/Debug/net9.0
-WindowAnalyser.exe window_log.csv output.xlsx
+WindowAnalyser.exe WindowLogger.csv output.xlsx
 ```
 
 Or from the project directory:
@@ -73,30 +103,49 @@ dotnet run -- <path-to-csv> <output-xlsx-path>
 **Example:**
 
 ```bash
-dotnet run -- ../../WindowLogger/bin/Debug/net9.0/window_log.csv weekly_report.xlsx
+dotnet run -- ../../WindowLogger/bin/Debug/net9.0/WindowLogger.csv weekly_report.xlsx
 ```
+
+### Alternatively - Use the Controller Application
+
+You can generate the `Report.xslx` directly from the **WindowLoggerTray** by clicking "Generate Report & Open".
 
 ---
 
-## 📂 Data Storage
+## Data Storage
 
-### Log File Location
+### Log File
 
-**File Name:** `window_log.csv`  
-**Location:** Same directory as `WindowLogger.exe`
+- **File Name:** WindowLogger.csv
+- **Location:** Created in the same directory where the application runs.
+- **Format:** Timestamp,Window Title [Executable],Status
 
-When running with `dotnet run`, the log file is created in:
+### Configuration File
 
-```csv
-WindowLogger/bin/Debug/net9.0/window_log.csv
+- **File Name:** appsettings.json
+- **Location:** Created in the same directory. Defines how windows are grouped into Applications and Categories.
+
+### Report.xslx
+
+WindowLoggerTray generates **Report.xslx** file when you use the `Generate Report Open` option. It uses data from the **WindowLogger.csv** file.
+
+
+
+---
+
+## Manual Usage (Command Line)
+
+If you prefer to run components manually without the Tray Controller:
+
+**Running the Logger:**
+```bash
+dotnet WindowLogger.dll
 ```
 
-When running the compiled executable directly:
-
-```csv
-<path-to-exe>/window_log.csv
+**Running the Analyser:**
+```bash
+dotnet WindowAnalyser.dll WindowLogger.csv Report.xlsx
 ```
-
 ### Log File Format
 
 The CSV file contains three columns:
@@ -135,7 +184,21 @@ The project is already configured to copy this file to the output directory auto
 
 ---
 
-## 📊 WindowLogger - Data Collection
+## Report Details
+
+The generated Excel workbook contains 4 worksheets:
+
+1. **Categories**: Aggregates time by your defined categories (e.g., "Productivity", "Social").
+2. **Applications**: Aggregates time by defined application names.
+3. **Undefined Applications**: Shows windows that didn't match any rule (useful for refining config).
+4. **Windows**: Daily breakdown of all raw window activity.
+
+**Time Columns:** The report includes precise time tracking:
+Time Spent (Hours) | Time Spent (Minutes)
+
+---
+
+## WindowLogger - Data Collection
 
 ### Features
 
@@ -181,7 +244,7 @@ _timer = new Timer(100);  // Polling interval in milliseconds
 
 ---
 
-## 📈 WindowAnalyser - Data Analysis
+## WindowAnalyser - Data Analysis
 
 ### Command Line Usage
 
@@ -198,10 +261,10 @@ WindowAnalyser.exe <input-csv-file> <output-xlsx-file>
 
 ```bash
 # Absolute paths
-WindowAnalyser.exe C:\Logs\window_log.csv C:\Reports\weekly_report.xlsx
+WindowAnalyser.exe C:\Logs\WindowLogger.csv C:\Reports\weekly_report.xlsx
 
 # Relative paths
-WindowAnalyser.exe window_log.csv report.xlsx
+WindowAnalyser.exe WindowLogger.csv report.xlsx
 
 # Analyze multiple periods
 WindowAnalyser.exe logs\january.csv reports\january_analysis.xlsx
@@ -251,7 +314,7 @@ Daily breakdown of all window activity
 
 1. **First Run** - Without `appsettings.json`
    ```bash
-   WindowAnalyser.exe window_log.csv initial_report.xlsx
+   WindowAnalyser.exe WindowLogger.csv initial_report.xlsx
    ```
    - All windows appear in "Undefined Applications" tab
    - No categories are generated
@@ -268,7 +331,7 @@ Daily breakdown of all window activity
 
 4. **Re-run Analysis**
    ```bash
-   WindowAnalyser.exe window_log.csv categorized_report.xlsx
+   WindowAnalyser.exe WindowLogger.csv categorized_report.xlsx
    ```
    - Applications now appear in "Applications" tab
    - Categories are populated
@@ -280,7 +343,7 @@ Daily breakdown of all window activity
 
 ---
 
-## ⚙️ Configuration
+## Configuration
 
 The `appsettings.json` file controls how window titles are classified.
 
@@ -513,7 +576,7 @@ Group applications into higher-level categories for aggregate reporting.
 
 ---
 
-## 🔧 Requirements
+## Requirements
 
 - **Operating System**: Windows (uses Win32 APIs for window tracking)
 - **.NET Runtime**: .NET 9.0 or higher
@@ -532,7 +595,7 @@ Group applications into higher-level categories for aggregate reporting.
 
 ---
 
-## 📝 Tips & Best Practices
+## Tips & Best Practices
 
 ### Data Collection
 
@@ -558,7 +621,7 @@ Group applications into higher-level categories for aggregate reporting.
 
 ---
 
-## 🛠️ Troubleshooting
+## Troubleshooting
 
 ### "Error reading appsettings.json"
 
@@ -594,10 +657,10 @@ Group applications into higher-level categories for aggregate reporting.
 
 1. Archive old logs regularly (e.g., monthly)
 2. Analyze and move the CSV file to a different location
-3. WindowLogger will create a new `window_log.csv` automatically
+3. WindowLogger will create a new `WindowLogger.csv` automatically
 
 ---
 
-## 📄 License
+## License
 
 This project is open source and available under the repository license.

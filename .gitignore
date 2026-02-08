@@ -3,3 +3,7 @@ bin/
 obj/
 .vs
 _ReSharper.Caches
+*.user
+*.suo
+*.log
+*.csv

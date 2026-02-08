@@ -1,4 +1,4 @@
-﻿using System.Diagnostics;
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Timers;
@@ -30,11 +30,19 @@ internal static class Program
     {
         Console.WriteLine("Active window logger started.");
         
-        // Initialize StreamWriter with AutoFlush enabled
-        _logWriter = new StreamWriter(LogFileName, append: true, Encoding.UTF8)
+        string logPath = Path.Combine(AppContext.BaseDirectory, LogFileName);
+
+        bool writeHeader = !File.Exists(logPath) || new FileInfo(logPath).Length == 0;
+        _logWriter = new StreamWriter(logPath, append: true, Encoding.UTF8)
         {
             AutoFlush = true
         };
+
+        if (writeHeader)
+        {
+            _logWriter.WriteLine("Timestamp,WindowTitle,Status");
+            _logWriter.Flush();
+        }
         
         _timer = new Timer(100); 
         _timer.Elapsed += TimerElapsed;

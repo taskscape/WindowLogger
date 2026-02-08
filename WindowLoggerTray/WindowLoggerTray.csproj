@@ -1,0 +1,35 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <StartupObject>WindowLoggerTray.Program</StartupObject>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="System.Drawing.Common" Version="8.0.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\WindowLogger\WindowLogger.csproj" />
+    <ProjectReference Include="..\WindowAnalyser\WindowAnalyser.csproj" />
+    <ProjectReference Include="..\WindowLoggerConfigGui\WindowLoggerConfigGui.csproj" />
+  </ItemGroup>
+
+  <Target Name="PostBuild" AfterTargets="PostBuildEvent">
+
+    <Exec Command="copy /Y &quot;$(ProjectDir)..\WindowLogger\bin\$(Configuration)\net10.0\WindowLogger.exe&quot; &quot;$(TargetDir)&quot;" />
+    <Exec Command="copy /Y &quot;$(ProjectDir)..\WindowLogger\bin\$(Configuration)\net10.0\WindowLogger.runtimeconfig.json&quot; &quot;$(TargetDir)&quot;" />
+
+    <Exec Command="copy /Y &quot;$(ProjectDir)..\WindowAnalyser\bin\$(Configuration)\net10.0\WindowAnalyser.exe&quot; &quot;$(TargetDir)&quot;" />
+    <Exec Command="copy /Y &quot;$(ProjectDir)..\WindowAnalyser\bin\$(Configuration)\net10.0\WindowAnalyser.runtimeconfig.json&quot; &quot;$(TargetDir)&quot;" />
+    <Exec Command="copy /Y &quot;$(ProjectDir)..\WindowAnalyser\appsettings.json&quot; &quot;$(TargetDir)&quot;" />
+
+    <Exec Command="copy /Y &quot;$(ProjectDir)..\WindowLoggerConfigGui\bin\$(Configuration)\net48\WindowLoggerConfigGui.exe&quot; &quot;$(TargetDir)&quot;" />
+    <Exec Command="copy /Y &quot;$(ProjectDir)..\WindowLoggerConfigGui\bin\$(Configuration)\net48\WindowLoggerConfigGui.exe.config&quot; &quot;$(TargetDir)&quot;" />
+  </Target>
+
+</Project>
