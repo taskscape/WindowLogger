@@ -106,6 +106,10 @@ dotnet run -- <path-to-csv> <output-xlsx-path>
 dotnet run -- ../../WindowLogger/bin/Debug/net9.0/WindowLogger.csv weekly_report.xlsx
 ```
 
+### Alternatively - Use the Controller Application
+
+You can generate the `Report.xslx` directly from the **WindowLoggerTray** by clicking "Generate Report & Open".
+
 ---
 
 ## Data Storage
