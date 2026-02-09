@@ -1,16 +1,17 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Drawing;
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Windows.Forms;
-using Newtonsoft.Json;
-using Newtonsoft.Json.Serialization;
 
 namespace WindowLoggerConfigGui
 {
-    public sealed class MainForm : Form
+    public partial class MainForm : Form
     {
         private readonly TextBox _configPathTextBox;
         private readonly Button _openButton;
@@ -47,6 +48,8 @@ namespace WindowLoggerConfigGui
         private AppSettings _settings = new AppSettings();
         private string? _currentPath;
         private bool _isDirty;
+
+        private const string DefaultRelativePath = @"..\..\..\WindowAnalyser\appsettings.json";
 
         public MainForm()
         {
@@ -136,32 +139,19 @@ namespace WindowLoggerConfigGui
             _categoryAddButton = (Button)tabControl.TabPages[2].Controls.Find("CategoryAddButton", true).First();
             _categoryUpdateButton = (Button)tabControl.TabPages[2].Controls.Find("CategoryUpdateButton", true).First();
             _categoryRemoveButton = (Button)tabControl.TabPages[2].Controls.Find("CategoryRemoveButton", true).First();
-
-            WireEvents();
-            TryLoadDefaultConfig();
         }
 
         private TabPage CreateApplicationsTab()
         {
             var tab = new TabPage("Applications");
-
-            var layout = new TableLayoutPanel
-            {
-                Dock = DockStyle.Fill,
-                ColumnCount = 2
-            };
+            var layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2 };
             layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 35));
             layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 65));
             tab.Controls.Add(layout);
 
-            var leftPanel = new TableLayoutPanel
-            {
-                Dock = DockStyle.Fill,
-                RowCount = 2
-            };
+            var leftPanel = new TableLayoutPanel { Dock = DockStyle.Fill, RowCount = 2 };
             leftPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
             leftPanel.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-
             var list = new ListBox { Dock = DockStyle.Fill };
             leftPanel.Controls.Add(list, 0, 0);
 
@@ -171,15 +161,9 @@ namespace WindowLoggerConfigGui
             movePanel.Controls.Add(moveUp);
             movePanel.Controls.Add(moveDown);
             leftPanel.Controls.Add(movePanel, 0, 1);
-
             layout.Controls.Add(leftPanel, 0, 0);
 
-            var details = new TableLayoutPanel
-            {
-                Dock = DockStyle.Fill,
-                ColumnCount = 2,
-                Padding = new Padding(10)
-            };
+            var details = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, Padding = new Padding(10) };
             details.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
             details.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
 
@@ -195,11 +179,7 @@ namespace WindowLoggerConfigGui
             var excludeText = CreateMultilineTextBox("AppExcludeText");
             details.Controls.Add(excludeText, 1, 2);
 
-            var buttonPanel = new FlowLayoutPanel
-            {
-                Dock = DockStyle.Fill,
-                AutoSize = true
-            };
+            var buttonPanel = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = true };
             var add = new Button { Name = "AppAddButton", Text = "Add New" };
             var update = new Button { Name = "AppUpdateButton", Text = "Update Selected" };
             var remove = new Button { Name = "AppRemoveButton", Text = "Remove Selected" };
@@ -209,7 +189,6 @@ namespace WindowLoggerConfigGui
             details.Controls.Add(buttonPanel, 1, 3);
 
             layout.Controls.Add(details, 1, 0);
-
             tab.Tag = list;
             return tab;
         }
@@ -217,12 +196,7 @@ namespace WindowLoggerConfigGui
         private TabPage CreateExclusionsTab()
         {
             var tab = new TabPage("Exclusions");
-
-            var layout = new TableLayoutPanel
-            {
-                Dock = DockStyle.Fill,
-                ColumnCount = 2
-            };
+            var layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2 };
             layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 35));
             layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 65));
             tab.Controls.Add(layout);
@@ -230,12 +204,7 @@ namespace WindowLoggerConfigGui
             var list = new ListBox { Dock = DockStyle.Fill };
             layout.Controls.Add(list, 0, 0);
 
-            var details = new TableLayoutPanel
-            {
-                Dock = DockStyle.Fill,
-                ColumnCount = 2,
-                Padding = new Padding(10)
-            };
+            var details = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, Padding = new Padding(10) };
             details.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
             details.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
 
@@ -260,12 +229,7 @@ namespace WindowLoggerConfigGui
         private TabPage CreateCategoriesTab()
         {
             var tab = new TabPage("Categories");
-
-            var layout = new TableLayoutPanel
-            {
-                Dock = DockStyle.Fill,
-                ColumnCount = 2
-            };
+            var layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2 };
             layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 35));
             layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 65));
             tab.Controls.Add(layout);
@@ -273,12 +237,7 @@ namespace WindowLoggerConfigGui
             var list = new ListBox { Dock = DockStyle.Fill };
             layout.Controls.Add(list, 0, 0);
 
-            var details = new TableLayoutPanel
-            {
-                Dock = DockStyle.Fill,
-                ColumnCount = 2,
-                Padding = new Padding(10)
-            };
+            var details = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, Padding = new Padding(10) };
             details.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
             details.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
 
@@ -304,7 +263,6 @@ namespace WindowLoggerConfigGui
             details.Controls.Add(buttonPanel, 1, 3);
 
             layout.Controls.Add(details, 1, 0);
-
             tab.Tag = list;
             return tab;
         }
@@ -321,8 +279,10 @@ namespace WindowLoggerConfigGui
             };
         }
 
-        private void WireEvents()
+        protected override void OnLoad(EventArgs e)
         {
+            base.OnLoad(e);
+
             _applicationsList.SelectedIndexChanged += (_, __) => LoadSelectedApplication();
             _appAddButton.Click += (_, __) => AddApplication();
             _appUpdateButton.Click += (_, __) => UpdateApplication();
@@ -339,11 +299,14 @@ namespace WindowLoggerConfigGui
             _categoryAddButton.Click += (_, __) => AddCategory();
             _categoryUpdateButton.Click += (_, __) => UpdateCategory();
             _categoryRemoveButton.Click += (_, __) => RemoveCategory();
+
+            TryLoadDefaultConfig();
         }
 
         private void TryLoadDefaultConfig()
         {
             string baseDir = AppDomain.CurrentDomain.BaseDirectory;
+
             string localPath = Path.Combine(baseDir, "appsettings.json");
             if (File.Exists(localPath))
             {
@@ -351,7 +314,7 @@ namespace WindowLoggerConfigGui
                 return;
             }
 
-            string candidate = Path.GetFullPath(Path.Combine(baseDir, "..", "..", "..", "WindowAnalyser", "appsettings.json"));
+            string candidate = Path.GetFullPath(Path.Combine(baseDir, DefaultRelativePath));
             if (File.Exists(candidate))
             {
                 LoadConfig(candidate);
@@ -365,10 +328,19 @@ namespace WindowLoggerConfigGui
             SetStatus("New configuration (no file loaded).");
         }
 
-        private void OpenConfig()
+        protected override void OnFormClosing(FormClosingEventArgs e)
         {
             if (!ConfirmDiscardChanges())
+            {
+                e.Cancel = true;
                 return;
+            }
+            base.OnFormClosing(e);
+        }
+
+        private void OpenConfig()
+        {
+            if (!ConfirmDiscardChanges()) return;
 
             using (var dialog = new OpenFileDialog())
             {
@@ -384,10 +356,8 @@ namespace WindowLoggerConfigGui
 
         private void ReloadConfig()
         {
-            if (string.IsNullOrWhiteSpace(_currentPath))
-                return;
-            if (!ConfirmDiscardChanges())
-                return;
+            if (string.IsNullOrWhiteSpace(_currentPath)) return;
+            if (!ConfirmDiscardChanges()) return;
             LoadConfig(_currentPath);
         }
 
@@ -396,11 +366,20 @@ namespace WindowLoggerConfigGui
             try
             {
                 string json = File.ReadAllText(path);
-                AppSettings settings = JsonConvert.DeserializeObject<AppSettings>(json) ?? new AppSettings();
+                var options = new JsonSerializerOptions
+                {
+                    PropertyNameCaseInsensitive = true,
+                    ReadCommentHandling = JsonCommentHandling.Skip,
+                    AllowTrailingCommas = true
+                };
+
+                var settings = JsonSerializer.Deserialize<AppSettings>(json, options) ?? new AppSettings();
                 NormalizeSettings(settings);
+
                 _settings = settings;
                 _currentPath = path;
                 _isDirty = false;
+
                 RefreshAllLists();
                 UpdatePathText();
                 SetStatus("Loaded " + path);
@@ -418,7 +397,6 @@ namespace WindowLoggerConfigGui
                 SaveConfigAs();
                 return;
             }
-
             SaveConfigToPath(_currentPath);
         }
 
@@ -441,13 +419,10 @@ namespace WindowLoggerConfigGui
         {
             try
             {
-                var settings = new JsonSerializerSettings
-                {
-                    ContractResolver = new CamelCasePropertyNamesContractResolver(),
-                    NullValueHandling = NullValueHandling.Ignore
-                };
-                string json = JsonConvert.SerializeObject(_settings, Formatting.Indented, settings);
+                var options = new JsonSerializerOptions { WriteIndented = true };
+                string json = JsonSerializer.Serialize(_settings, options);
                 File.WriteAllText(path, json, new UTF8Encoding(false));
+
                 _currentPath = path;
                 _isDirty = false;
                 UpdatePathText();
@@ -476,68 +451,21 @@ namespace WindowLoggerConfigGui
         private void RefreshApplicationsList(int selectedIndex)
         {
             _applicationsList.Items.Clear();
-            foreach (ApplicationDefinition app in _settings.Applications)
+            foreach (var app in _settings.Applications)
             {
-                string name = string.IsNullOrWhiteSpace(app.Name) ? "(unnamed application)" : app.Name;
+                string name = string.IsNullOrWhiteSpace(app.Name) ? "(unnamed)" : app.Name;
                 _applicationsList.Items.Add(name);
             }
 
             if (_settings.Applications.Count > 0)
             {
-                if (selectedIndex < 0 || selectedIndex >= _settings.Applications.Count)
-                    selectedIndex = 0;
+                if (selectedIndex < 0 || selectedIndex >= _settings.Applications.Count) selectedIndex = 0;
                 _applicationsList.SelectedIndex = selectedIndex;
             }
             else
             {
                 _applicationsList.SelectedIndex = -1;
                 ClearApplicationFields();
-            }
-        }
-
-        private void RefreshExclusionsList(int selectedIndex)
-        {
-            _exclusionsList.Items.Clear();
-            foreach (ExclusionDefinition ex in _settings.Exclusions)
-            {
-                string label = ex.Include != null && ex.Include.Count > 0
-                    ? string.Join(" & ", ex.Include)
-                    : "(empty exclusion)";
-                _exclusionsList.Items.Add(label);
-            }
-
-            if (_settings.Exclusions.Count > 0)
-            {
-                if (selectedIndex < 0 || selectedIndex >= _settings.Exclusions.Count)
-                    selectedIndex = 0;
-                _exclusionsList.SelectedIndex = selectedIndex;
-            }
-            else
-            {
-                _exclusionsList.SelectedIndex = -1;
-                ClearExclusionFields();
-            }
-        }
-
-        private void RefreshCategoriesList(int selectedIndex)
-        {
-            _categoriesList.Items.Clear();
-            foreach (CategoryDefinition category in _settings.Categories)
-            {
-                string name = string.IsNullOrWhiteSpace(category.Name) ? "(unnamed category)" : category.Name;
-                _categoriesList.Items.Add(name);
-            }
-
-            if (_settings.Categories.Count > 0)
-            {
-                if (selectedIndex < 0 || selectedIndex >= _settings.Categories.Count)
-                    selectedIndex = 0;
-                _categoriesList.SelectedIndex = selectedIndex;
-            }
-            else
-            {
-                _categoriesList.SelectedIndex = -1;
-                ClearCategoryFields();
             }
         }
 
@@ -549,55 +477,24 @@ namespace WindowLoggerConfigGui
                 ClearApplicationFields();
                 return;
             }
-
-            ApplicationDefinition app = _settings.Applications[index];
+            var app = _settings.Applications[index];
             _appNameText.Text = app.Name ?? string.Empty;
             _appIncludeText.Lines = (app.Include ?? new List<string>()).ToArray();
             _appExcludeText.Lines = (app.Exclude ?? new List<string>()).ToArray();
         }
 
-        private void LoadSelectedExclusion()
-        {
-            int index = _exclusionsList.SelectedIndex;
-            if (index < 0 || index >= _settings.Exclusions.Count)
-            {
-                ClearExclusionFields();
-                return;
-            }
-
-            ExclusionDefinition ex = _settings.Exclusions[index];
-            _exclusionIncludeText.Lines = (ex.Include ?? new List<string>()).ToArray();
-        }
-
-        private void LoadSelectedCategory()
-        {
-            int index = _categoriesList.SelectedIndex;
-            if (index < 0 || index >= _settings.Categories.Count)
-            {
-                ClearCategoryFields();
-                return;
-            }
-
-            CategoryDefinition category = _settings.Categories[index];
-            _categoryNameText.Text = category.Name ?? string.Empty;
-            _categoryIncludeText.Lines = (category.IncludeApplications ?? new List<string>()).ToArray();
-            _categoryExcludeText.Lines = (category.ExcludeApplications ?? new List<string>()).ToArray();
-        }
-
         private void AddApplication()
         {
             string name = _appNameText.Text.Trim();
-            List<string> include = ParseLines(_appIncludeText);
-            List<string> exclude = ParseLines(_appExcludeText);
-
             if (string.IsNullOrWhiteSpace(name))
             {
-                MessageBox.Show(this, "Application name is required.", "Validation", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                ShowWarning("Application name is required.");
                 return;
             }
+            var include = ParseLines(_appIncludeText);
             if (include.Count == 0)
             {
-                MessageBox.Show(this, "Include keywords are required.", "Validation", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                ShowWarning("Include keywords are required.");
                 return;
             }
 
@@ -605,9 +502,8 @@ namespace WindowLoggerConfigGui
             {
                 Name = name,
                 Include = include,
-                Exclude = exclude
+                Exclude = ParseLines(_appExcludeText)
             });
-
             MarkDirty();
             RefreshApplicationsList(_settings.Applications.Count - 1);
         }
@@ -615,29 +511,25 @@ namespace WindowLoggerConfigGui
         private void UpdateApplication()
         {
             int index = _applicationsList.SelectedIndex;
-            if (index < 0 || index >= _settings.Applications.Count)
-                return;
+            if (index < 0) return;
 
             string name = _appNameText.Text.Trim();
-            List<string> include = ParseLines(_appIncludeText);
-            List<string> exclude = ParseLines(_appExcludeText);
-
             if (string.IsNullOrWhiteSpace(name))
             {
-                MessageBox.Show(this, "Application name is required.", "Validation", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                ShowWarning("Application name is required.");
                 return;
             }
+            var include = ParseLines(_appIncludeText);
             if (include.Count == 0)
             {
-                MessageBox.Show(this, "Include keywords are required.", "Validation", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                ShowWarning("Include keywords are required.");
                 return;
             }
 
-            ApplicationDefinition app = _settings.Applications[index];
+            var app = _settings.Applications[index];
             app.Name = name;
             app.Include = include;
-            app.Exclude = exclude;
-
+            app.Exclude = ParseLines(_appExcludeText);
             MarkDirty();
             RefreshApplicationsList(index);
         }
@@ -645,9 +537,7 @@ namespace WindowLoggerConfigGui
         private void RemoveApplication()
         {
             int index = _applicationsList.SelectedIndex;
-            if (index < 0 || index >= _settings.Applications.Count)
-                return;
-
+            if (index < 0) return;
             _settings.Applications.RemoveAt(index);
             MarkDirty();
             RefreshApplicationsList(Math.Max(0, index - 1));
@@ -656,14 +546,11 @@ namespace WindowLoggerConfigGui
         private void MoveApplication(int direction)
         {
             int index = _applicationsList.SelectedIndex;
-            if (index < 0 || index >= _settings.Applications.Count)
-                return;
-
+            if (index < 0) return;
             int newIndex = index + direction;
-            if (newIndex < 0 || newIndex >= _settings.Applications.Count)
-                return;
+            if (newIndex < 0 || newIndex >= _settings.Applications.Count) return;
 
-            ApplicationDefinition item = _settings.Applications[index];
+            var item = _settings.Applications[index];
             _settings.Applications.RemoveAt(index);
             _settings.Applications.Insert(newIndex, item);
             MarkDirty();
@@ -677,15 +564,45 @@ namespace WindowLoggerConfigGui
             _appExcludeText.Text = string.Empty;
         }
 
-        private void AddExclusion()
+        private void RefreshExclusionsList(int selectedIndex)
         {
-            List<string> include = ParseLines(_exclusionIncludeText);
-            if (include.Count == 0)
+            _exclusionsList.Items.Clear();
+            foreach (var ex in _settings.Exclusions)
             {
-                MessageBox.Show(this, "Include keywords are required.", "Validation", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                return;
+                string label = (ex.Include != null && ex.Include.Count > 0)
+                    ? string.Join(" & ", ex.Include)
+                    : "(empty)";
+                _exclusionsList.Items.Add(label);
             }
 
+            if (_settings.Exclusions.Count > 0)
+            {
+                if (selectedIndex < 0 || selectedIndex >= _settings.Exclusions.Count) selectedIndex = 0;
+                _exclusionsList.SelectedIndex = selectedIndex;
+            }
+            else
+            {
+                _exclusionsList.SelectedIndex = -1;
+                ClearExclusionFields();
+            }
+        }
+
+        private void LoadSelectedExclusion()
+        {
+            int index = _exclusionsList.SelectedIndex;
+            if (index < 0) return;
+            var ex = _settings.Exclusions[index];
+            _exclusionIncludeText.Lines = (ex.Include ?? new List<string>()).ToArray();
+        }
+
+        private void AddExclusion()
+        {
+            var include = ParseLines(_exclusionIncludeText);
+            if (include.Count == 0)
+            {
+                ShowWarning("Include keywords are required.");
+                return;
+            }
             _settings.Exclusions.Add(new ExclusionDefinition { Include = include });
             MarkDirty();
             RefreshExclusionsList(_settings.Exclusions.Count - 1);
@@ -694,16 +611,13 @@ namespace WindowLoggerConfigGui
         private void UpdateExclusion()
         {
             int index = _exclusionsList.SelectedIndex;
-            if (index < 0 || index >= _settings.Exclusions.Count)
-                return;
-
-            List<string> include = ParseLines(_exclusionIncludeText);
+            if (index < 0) return;
+            var include = ParseLines(_exclusionIncludeText);
             if (include.Count == 0)
             {
-                MessageBox.Show(this, "Include keywords are required.", "Validation", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                ShowWarning("Include keywords are required.");
                 return;
             }
-
             _settings.Exclusions[index].Include = include;
             MarkDirty();
             RefreshExclusionsList(index);
@@ -712,9 +626,7 @@ namespace WindowLoggerConfigGui
         private void RemoveExclusion()
         {
             int index = _exclusionsList.SelectedIndex;
-            if (index < 0 || index >= _settings.Exclusions.Count)
-                return;
-
+            if (index < 0) return;
             _settings.Exclusions.RemoveAt(index);
             MarkDirty();
             RefreshExclusionsList(Math.Max(0, index - 1));
@@ -725,20 +637,48 @@ namespace WindowLoggerConfigGui
             _exclusionIncludeText.Text = string.Empty;
         }
 
+        private void RefreshCategoriesList(int selectedIndex)
+        {
+            _categoriesList.Items.Clear();
+            foreach (var cat in _settings.Categories)
+            {
+                _categoriesList.Items.Add(cat.Name ?? "(unnamed)");
+            }
+
+            if (_settings.Categories.Count > 0)
+            {
+                if (selectedIndex < 0 || selectedIndex >= _settings.Categories.Count) selectedIndex = 0;
+                _categoriesList.SelectedIndex = selectedIndex;
+            }
+            else
+            {
+                _categoriesList.SelectedIndex = -1;
+                ClearCategoryFields();
+            }
+        }
+
+        private void LoadSelectedCategory()
+        {
+            int index = _categoriesList.SelectedIndex;
+            if (index < 0) return;
+            var cat = _settings.Categories[index];
+            _categoryNameText.Text = cat.Name ?? string.Empty;
+            _categoryIncludeText.Lines = (cat.IncludeApplications ?? new List<string>()).ToArray();
+            _categoryExcludeText.Lines = (cat.ExcludeApplications ?? new List<string>()).ToArray();
+        }
+
         private void AddCategory()
         {
             string name = _categoryNameText.Text.Trim();
-            List<string> include = ParseLines(_categoryIncludeText);
-            List<string> exclude = ParseLines(_categoryExcludeText);
-
             if (string.IsNullOrWhiteSpace(name))
             {
-                MessageBox.Show(this, "Category name is required.", "Validation", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                ShowWarning("Category name is required.");
                 return;
             }
+            var include = ParseLines(_categoryIncludeText);
             if (include.Count == 0)
             {
-                MessageBox.Show(this, "Include applications are required.", "Validation", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                ShowWarning("Include applications are required.");
                 return;
             }
 
@@ -746,9 +686,8 @@ namespace WindowLoggerConfigGui
             {
                 Name = name,
                 IncludeApplications = include,
-                ExcludeApplications = exclude
+                ExcludeApplications = ParseLines(_categoryExcludeText)
             });
-
             MarkDirty();
             RefreshCategoriesList(_settings.Categories.Count - 1);
         }
@@ -756,29 +695,24 @@ namespace WindowLoggerConfigGui
         private void UpdateCategory()
         {
             int index = _categoriesList.SelectedIndex;
-            if (index < 0 || index >= _settings.Categories.Count)
-                return;
-
+            if (index < 0) return;
             string name = _categoryNameText.Text.Trim();
-            List<string> include = ParseLines(_categoryIncludeText);
-            List<string> exclude = ParseLines(_categoryExcludeText);
-
             if (string.IsNullOrWhiteSpace(name))
             {
-                MessageBox.Show(this, "Category name is required.", "Validation", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                ShowWarning("Category name is required.");
                 return;
             }
+            var include = ParseLines(_categoryIncludeText);
             if (include.Count == 0)
             {
-                MessageBox.Show(this, "Include applications are required.", "Validation", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                ShowWarning("Include applications are required.");
                 return;
             }
 
-            CategoryDefinition category = _settings.Categories[index];
-            category.Name = name;
-            category.IncludeApplications = include;
-            category.ExcludeApplications = exclude;
-
+            var cat = _settings.Categories[index];
+            cat.Name = name;
+            cat.IncludeApplications = include;
+            cat.ExcludeApplications = ParseLines(_categoryExcludeText);
             MarkDirty();
             RefreshCategoriesList(index);
         }
@@ -786,9 +720,7 @@ namespace WindowLoggerConfigGui
         private void RemoveCategory()
         {
             int index = _categoriesList.SelectedIndex;
-            if (index < 0 || index >= _settings.Categories.Count)
-                return;
-
+            if (index < 0) return;
             _settings.Categories.RemoveAt(index);
             MarkDirty();
             RefreshCategoriesList(Math.Max(0, index - 1));
@@ -804,8 +736,8 @@ namespace WindowLoggerConfigGui
         private static List<string> ParseLines(TextBox textBox)
         {
             return textBox.Lines
-                .Select(line => line.Trim())
-                .Where(line => line.Length > 0)
+                .Select(l => l.Trim())
+                .Where(l => l.Length > 0)
                 .ToList();
         }
 
@@ -815,29 +747,15 @@ namespace WindowLoggerConfigGui
             SetStatus("Unsaved changes");
         }
 
+        private void SetStatus(string msg) => _statusLabel.Text = msg;
+
+        private void ShowWarning(string msg) => MessageBox.Show(this, msg, "Validation", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+
         private bool ConfirmDiscardChanges()
         {
-            if (!_isDirty)
-                return true;
-
-            DialogResult result = MessageBox.Show(
-                this,
-                "You have unsaved changes. Discard them?",
-                "Unsaved Changes",
-                MessageBoxButtons.YesNo,
-                MessageBoxIcon.Warning);
-
-            return result == DialogResult.Yes;
-        }
-
-        private void UpdatePathText()
-        {
-            _configPathTextBox.Text = _currentPath ?? "(not saved yet)";
-        }
-
-        private void SetStatus(string message)
-        {
-            _statusLabel.Text = message;
+            if (!_isDirty) return true;
+            var res = MessageBox.Show(this, "You have unsaved changes. Discard them?", "Unsaved Changes", MessageBoxButtons.YesNo, MessageBoxIcon.Warning);
+            return res == DialogResult.Yes;
         }
     }
 }
