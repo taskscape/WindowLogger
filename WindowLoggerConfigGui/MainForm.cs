@@ -757,5 +757,12 @@ namespace WindowLoggerConfigGui
             var res = MessageBox.Show(this, "You have unsaved changes. Discard them?", "Unsaved Changes", MessageBoxButtons.YesNo, MessageBoxIcon.Warning);
             return res == DialogResult.Yes;
         }
+        private void UpdatePathText()
+        {
+            if (_configPathTextBox != null)
+            {
+                _configPathTextBox.Text = _currentPath ?? "(not saved yet)";
+            }
+        }
     }
 }
