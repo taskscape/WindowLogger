@@ -30,6 +30,14 @@ internal static class Program
     {
         Console.WriteLine("Active window logger started.");
         
+        string appData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+        string logDir = Path.Combine(appData, "WindowLogger");
+
+        if (!Directory.Exists(logDir))
+        {
+            Directory.CreateDirectory(logDir);
+        }
+
         string logPath = Path.Combine(AppContext.BaseDirectory, LogFileName);
 
         bool writeHeader = !File.Exists(logPath) || new FileInfo(logPath).Length == 0;
