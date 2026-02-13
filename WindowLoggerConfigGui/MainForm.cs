@@ -51,8 +51,11 @@ namespace WindowLoggerConfigGui
 
         private const string DefaultRelativePath = @"..\..\..\WindowAnalyser\appsettings.json";
 
-        public MainForm()
+        private readonly string? _startupPath;
+
+        public MainForm(string? startupPath = null)
         {
+            _startupPath = startupPath;
             Text = "Window Logger Configuration";
             MinimumSize = new Size(980, 640);
             StartPosition = FormStartPosition.CenterScreen;
@@ -299,6 +302,15 @@ namespace WindowLoggerConfigGui
             _categoryAddButton.Click += (_, __) => AddCategory();
             _categoryUpdateButton.Click += (_, __) => UpdateCategory();
             _categoryRemoveButton.Click += (_, __) => RemoveCategory();
+
+            if (!string.IsNullOrWhiteSpace(_startupPath) && File.Exists(_startupPath))
+            {
+                LoadConfig(_startupPath);
+            }
+            else
+            {
+                TryLoadDefaultConfig();
+            }
 
             TryLoadDefaultConfig();
         }
