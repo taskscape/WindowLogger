@@ -112,7 +112,7 @@ public class TrayApplicationContext : ApplicationContext
             }
             catch
             {
-                // ignore formatting issues; starting without args is better than failing here
+                // ignore formatting issues
             }
 
             _loggerProcess = Process.Start(startInfo);
@@ -153,7 +153,6 @@ public class TrayApplicationContext : ApplicationContext
             return;
         }
 
-        // Logic check: Verify if the CSV exists in the REMOTE (Logger) folder
         if (!File.Exists(LogFile))
         {
             ShowError($"No log file found at:\n{LogFile}\n\nPlease run the logger first to generate data.");
@@ -165,11 +164,9 @@ public class TrayApplicationContext : ApplicationContext
             var startInfo = new ProcessStartInfo
             {
                 FileName = AnalyserExe,
-                // Arguments: [Input: Path to Logger's CSV] [Output: Path to Tray's Report]
                 Arguments = $"\"{LogFile}\" \"{ReportFile}\"",
                 UseShellExecute = false,
                 CreateNoWindow = true,
-                // Analyser needs to run in its own folder to find appsettings.json
                 WorkingDirectory = Path.GetDirectoryName(AnalyserExe) 
             };
 
@@ -195,7 +192,13 @@ public class TrayApplicationContext : ApplicationContext
     {
         if (File.Exists(ConfigGuiExe))
         {
-            Process.Start(new ProcessStartInfo(ConfigGuiExe) { UseShellExecute = true });
+            var startInfo = new ProcessStartInfo(ConfigGuiExe)
+            {
+                UseShellExecute = true,
+                // Przekazujemy ścieżkę do pliku konfiguracyjnego Analizatora
+                Arguments = $"\"{ConfigFile}\""
+            };
+            Process.Start(startInfo);
         }
         else
         {
