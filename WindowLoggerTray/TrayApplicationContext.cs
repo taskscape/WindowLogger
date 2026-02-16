@@ -21,17 +21,20 @@ public class TrayApplicationContext : ApplicationContext
         "WindowLogger", 
         "WindowLogger.csv");
     
-    // 3. Config File
-    private string ConfigFile => Path.Combine(Path.GetDirectoryName(AnalyserExe) ?? string.Empty, "appsettings.json");
+    // 3. Config File (per-machine, writable)
+    private string ConfigFile => Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
+        "WindowLogger",
+        "appsettings.json");
 
-    // 4. Report File (Output): Documents\WindowLogger\Report-yymmdd.xlsx
+    // 4. Report File (Output): Documents\WindowLogger\Report-yymmdd-HHmmss.xlsx
     private string ReportFile
     {
         get
         {
             string docsDir = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
             string appDir = Path.Combine(docsDir, "WindowLogger");
-            string fileName = $"Report-{DateTime.Now:yyMMdd}.xlsx";
+            string fileName = $"Report-{DateTime.Now:yyMMdd-HHmmss}.xlsx";
             return Path.Combine(appDir, fileName);
         }
     }
@@ -182,10 +185,11 @@ public class TrayApplicationContext : ApplicationContext
             return;
         }
 
+        string reportPath = ReportFile; // capture once to avoid timestamp drift
         try
         {
             // Ensure output directory exists in Documents
-            string? reportDir = Path.GetDirectoryName(ReportFile);
+            string? reportDir = Path.GetDirectoryName(reportPath);
             if (!string.IsNullOrEmpty(reportDir) && !Directory.Exists(reportDir))
             {
                 Directory.CreateDirectory(reportDir);
@@ -194,7 +198,7 @@ public class TrayApplicationContext : ApplicationContext
             var startInfo = new ProcessStartInfo
             {
                 FileName = AnalyserExe,
-                Arguments = $"\"{LogFile}\" \"{ReportFile}\"",
+                Arguments = $"\"{LogFile}\" \"{reportPath}\"",
                 UseShellExecute = false,
                 CreateNoWindow = true,
                 WorkingDirectory = Path.GetDirectoryName(AnalyserExe) 
@@ -203,9 +207,9 @@ public class TrayApplicationContext : ApplicationContext
             var process = Process.Start(startInfo);
             process?.WaitForExit();
 
-            if (File.Exists(ReportFile))
+            if (File.Exists(reportPath))
             {
-                new Process { StartInfo = new ProcessStartInfo(ReportFile) { UseShellExecute = true } }.Start();
+                new Process { StartInfo = new ProcessStartInfo(reportPath) { UseShellExecute = true } }.Start();
             }
             else
             {
@@ -301,3 +305,4 @@ public class TrayApplicationContext : ApplicationContext
         Application.Exit();
     }
 }
+
