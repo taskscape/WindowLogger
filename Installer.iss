@@ -1,7 +1,7 @@
 ; Installer script for Window Logger
 ; Requires: Inno Setup 6.x (https://jrsoftware.org/)
 
-#define MyAppName "Window Logger"
+#define MyAppName "WindowLogger"
 #define MyAppFolderName "WindowLogger"
 #define MyAppVersion "1.0"
 #define MyAppPublisher "Taskscape"
@@ -71,3 +71,4 @@ Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChang
 [UninstallRun]
 ; Remove the Scheduled Task when uninstalling
 Filename: "schtasks"; Parameters: "/Delete /TN ""{#MyAppName} Autostart"" /F"; Flags: runhidden
+
