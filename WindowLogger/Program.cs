@@ -1,155 +1,93 @@
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text;
-using System.Timers;
-using Timer = System.Timers.Timer;
 
 namespace WindowLogger;
 
 internal static class Program
 {
-    private static Timer? _timer;
     private const string LogFileName = "WindowLogger.csv";
-    private static string? _lastWindowTitle = "";
-    private static string? _lastExecutableName = "";
-    private static bool _inactive;
-    private const double MinutesToInactive = 1;
+    private const string MutexName = "WindowLogger_App_V2_UniqueString";
+    private static Mutex? _mutex;
     private static StreamWriter? _logWriter;
-    private static readonly object _logLock = new object();
+    private static string? _lastWindowTitle;
 
     [DllImport("user32.dll")]
     private static extern IntPtr GetForegroundWindow();
 
-    [DllImport("user32.dll", SetLastError = true)]
-    private static extern int GetWindowText(IntPtr hWnd, StringBuilder lpString, int nMaxCount);
-
     [DllImport("user32.dll")]
-    private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
+    private static extern int GetWindowText(IntPtr hWnd, StringBuilder text, int count);
 
     static void Main(string[] args)
     {
-        Console.WriteLine("Active window logger started.");
-        
-        string appData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-        string logDir = Path.Combine(appData, "WindowLogger");
-
-        if (!Directory.Exists(logDir))
+        bool createdNew;
+        _mutex = new Mutex(true, MutexName, out createdNew);
+        if (!createdNew)
         {
-            Directory.CreateDirectory(logDir);
+            return; 
         }
-
-        string logPath = Path.Combine(AppContext.BaseDirectory, LogFileName);
-
-        bool writeHeader = !File.Exists(logPath) || new FileInfo(logPath).Length == 0;
-        _logWriter = new StreamWriter(logPath, append: true, Encoding.UTF8)
-        {
-            AutoFlush = true
-        };
-
-        if (writeHeader)
-        {
-            _logWriter.WriteLine("Timestamp,WindowTitle,Status");
-            _logWriter.Flush();
-        }
-        
-        _timer = new Timer(100); 
-        _timer.Elapsed += TimerElapsed;
-        _timer.AutoReset = true;
-        _timer.Start();
-
-        Console.WriteLine("Press Enter to exit...");
-        Console.ReadLine();
-        
-        // Cleanup
-        _timer?.Stop();
-        _timer?.Dispose();
-        
-        lock (_logLock)
-        {
-            _logWriter?.Flush();
-            _logWriter?.Dispose();
-        }
-    }
-
-    private static void WriteLog(string logLine)
-    {
-        Console.WriteLine(logLine);
-        lock (_logLock)
-        {
-            _logWriter?.WriteLine(logLine);
-            // AutoFlush ensures immediate write, but we can also call Flush explicitly for critical data
-            _logWriter?.Flush();
-        }
-        Console.WriteLine(logLine);
-    }
-
-    private static void TimerElapsed(object? sender, ElapsedEventArgs e)
-    {
-        TimeSpan threshold = TimeSpan.FromMinutes(MinutesToInactive);
-        bool isInactive = UserActivityDetector.IsUserInactive(threshold);
-
-        if (isInactive != _inactive)
-        {
-            _inactive = isInactive;
-
-            if (_inactive)
-            {
-                string inactiveWindowName = string.IsNullOrWhiteSpace(_lastWindowTitle) ? "Unknown" : _lastWindowTitle;
-                string inactiveExecutableName = string.IsNullOrWhiteSpace(_lastExecutableName) ? "Unknown" : _lastExecutableName;
-                string logLine = $"{DateTime.Now:yyyy-MM-dd HH:mm:ss},{inactiveWindowName} [{inactiveExecutableName}],Inactive";
-                WriteLog(logLine);
-            }
-            else
-            {
-                string? activeWindow = GetActiveWindowTitle(out string fileName);
-                activeWindow = activeWindow?.Replace(",", "");
-                if (string.IsNullOrWhiteSpace(activeWindow)) return;
-                _lastWindowTitle = activeWindow;
-                _lastExecutableName = fileName;
-                string logLine = $"{DateTime.Now:yyyy-MM-dd HH:mm:ss},{activeWindow} [{fileName}],Active";
-                WriteLog(logLine);
-            }
-
-            return;
-        }
-
-        if (_inactive)
-        {
-            return;
-        }
-
-        string? currentWindow = GetActiveWindowTitle(out string activeFileName);
-        currentWindow = currentWindow?.Replace(",", "");
-
-        if (string.IsNullOrWhiteSpace(currentWindow) || currentWindow == _lastWindowTitle) return;
-        _lastWindowTitle = currentWindow;
-        _lastExecutableName = activeFileName;
-        string activeLogLine = $"{DateTime.Now:yyyy-MM-dd HH:mm:ss},{currentWindow} [{activeFileName}],Active";
-        WriteLog(activeLogLine);
-    }
-
-    private static string GetActiveWindowTitle(out string executableName)
-    {
-        const int nChars = 256;
-        StringBuilder buff = new(nChars);
-        executableName = "unknown";
-
-        IntPtr handle = GetForegroundWindow();
-
-        if (GetWindowText(handle, buff, nChars) <= 0) return null!;
-        GetWindowThreadProcessId(handle, out uint processId);
 
         try
         {
-            Process processById = Process.GetProcessById((int)processId);
-            executableName = Path.GetFileName(processById.MainModule?.FileName) ?? "unknown";
+            string appData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+            string logDir = Path.Combine(appData, "WindowLogger");
+
+            if (!Directory.Exists(logDir))
+            {
+                Directory.CreateDirectory(logDir);
+            }
+
+            string logPath = Path.Combine(logDir, LogFileName);
+            
+
+            bool writeHeader = !File.Exists(logPath) || new FileInfo(logPath).Length == 0;
+            
+
+            var fileStream = new FileStream(logPath, FileMode.Append, FileAccess.Write, FileShare.Read);
+            _logWriter = new StreamWriter(fileStream, Encoding.UTF8) { AutoFlush = true };
+
+            if (writeHeader)
+            {
+                _logWriter.WriteLine("Timestamp,WindowTitle");
+            }
+
+            while (true)
+            {
+                LogActiveWindow();
+                Thread.Sleep(1000);
+            }
         }
-        catch (Exception ex)
+        catch (Exception)
         {
-            executableName = $"error: {ex.Message}";
         }
+    }
 
-        return buff.ToString();
+    private static void LogActiveWindow()
+    {
+        try
+        {
+            IntPtr handle = GetForegroundWindow();
+            if (handle == IntPtr.Zero) return;
 
+            const int nChars = 256;
+            StringBuilder buff = new StringBuilder(nChars);
+            
+            if (GetWindowText(handle, buff, nChars) > 0)
+            {
+                string currentTitle = buff.ToString();
+                if (currentTitle != _lastWindowTitle)
+                {
+                    string timestamp = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
+                    string safeTitle = currentTitle.Replace("\"", "\"\"");
+                    
+                    _logWriter?.WriteLine($"{timestamp},\"{safeTitle}\"");
+                    
+                    _lastWindowTitle = currentTitle;
+                }
+            }
+        }
+        catch
+        {
+        }
     }
 }
