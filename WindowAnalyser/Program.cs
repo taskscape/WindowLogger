@@ -1,4 +1,3 @@
-
 using System.Data;
 using System.Globalization;
 using System.Text;
@@ -54,24 +53,7 @@ internal static class Program
         string inputFile = args[0];
         string outputFile = args[1];
 
-        AppSettings settings;
-        try
-        {
-            if (File.Exists("appsettings.json"))
-            {
-                settings = JsonConvert.DeserializeObject<AppSettings>(File.ReadAllText("appsettings.json")) ?? new AppSettings();
-            }
-            else
-            {
-                 Console.WriteLine("appsettings.json not found. Using defaults.");
-                 settings = new AppSettings();
-            }
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"Error reading appsettings.json: {ex.Message}. Using default settings.");
-            settings = new AppSettings();
-        }
+        AppSettings settings = LoadSettings();
 
         // --- FIX FOR FILE LOCKING (FileShare.ReadWrite) ---
         var allLines = new List<string>();
@@ -293,6 +275,31 @@ internal static class Program
         }
         result.Add(current.ToString());
         return result;
+    }
+
+    private static AppSettings LoadSettings()
+    {
+        string programDataPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "WindowLogger", "appsettings.json");
+        string localPath = "appsettings.json";
+
+        foreach (string path in new[] { programDataPath, localPath })
+        {
+            try
+            {
+                if (File.Exists(path))
+                {
+                    var settings = JsonConvert.DeserializeObject<AppSettings>(File.ReadAllText(path)) ?? new AppSettings();
+                    return settings;
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error reading {path}: {ex.Message}. Trying next location.");
+            }
+        }
+
+        Console.WriteLine("appsettings.json not found. Using defaults.");
+        return new AppSettings();
     }
 
     private static bool IsExcluded(string title, List<ExclusionDefinition> exclusions)
