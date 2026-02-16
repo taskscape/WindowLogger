@@ -6,8 +6,9 @@ namespace WindowLogger;
 
 internal static class Program
 {
-    private const string LogFileName = "WindowLogger.csv";
-    private const string MutexName = "WindowLogger_App_V2_UniqueString";
+    // Keep daily log files: WindowLogger-yymmdd.csv (captured once per run)
+    private static readonly string LogFileName = $"WindowLogger-{DateTime.Now:yyMMdd}.csv";
+    private const string MutexName = "WindowLogger_App_UniqueString";
     private static readonly CancellationTokenSource Cts = new();
     private static Mutex? _mutex;
     private static StreamWriter? _logWriter;
