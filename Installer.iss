@@ -9,7 +9,7 @@
 
 [Setup]
 ; Unique AppId (generated for this specific application)
-AppId={{E6593582-1594-4177-8332-972134599723}
+AppId={{E6593582-1594-4177-8332-972134599723}}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
 AppPublisher={#MyAppPublisher}
