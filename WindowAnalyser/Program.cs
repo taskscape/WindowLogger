@@ -1,5 +1,7 @@
-﻿﻿using System.Data;
+
+using System.Data;
 using System.Globalization;
+using System.Text;
 using ClosedXML.Excel;
 using Newtonsoft.Json;
 
@@ -55,37 +57,75 @@ internal static class Program
         AppSettings settings;
         try
         {
-            settings = JsonConvert.DeserializeObject<AppSettings>(File.ReadAllText("appsettings.json")) ?? new AppSettings();
+            if (File.Exists("appsettings.json"))
+            {
+                settings = JsonConvert.DeserializeObject<AppSettings>(File.ReadAllText("appsettings.json")) ?? new AppSettings();
+            }
+            else
+            {
+                 Console.WriteLine("appsettings.json not found. Using defaults.");
+                 settings = new AppSettings();
+            }
         }
-        catch (Exception)
+        catch (Exception ex)
         {
-            Console.WriteLine("Error reading appsettings.json. Using default settings.");
+            Console.WriteLine($"Error reading appsettings.json: {ex.Message}. Using default settings.");
             settings = new AppSettings();
         }
 
-        // Read and parse CSV.
-        // Assumes CSV rows in the format:
-        // yyyy-MM-dd HH:mm:ss,Window Title,Active/Inactive
-        var allLines = File.ReadAllLines(inputFile).Skip(1).ToList(); // Skip header if exists
+        // --- FIX FOR FILE LOCKING (FileShare.ReadWrite) ---
+        var allLines = new List<string>();
+        try 
+        {
+            // Allow reading even if the logger is writing to it
+            using (var fs = new FileStream(inputFile, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+            using (var sr = new StreamReader(fs, Encoding.UTF8))
+            {
+                // Skip header
+                if (!sr.EndOfStream) sr.ReadLine();
+
+                while (!sr.EndOfStream)
+                {
+                    var line = sr.ReadLine();
+                    if (line != null) allLines.Add(line);
+                }
+            }
+        }
+        catch (IOException ex)
+        {
+            Console.WriteLine($"Critical Error reading log file: {ex.Message}");
+            return;
+        }
+        // -----------------------------------------------------------
+
         var timeEntries = new List<(DateTime DateTime, string WindowTitle, string Status)>();
         
         for (int lineIndex = 0; lineIndex < allLines.Count; lineIndex++)
         {
             string line = allLines[lineIndex];
-            string[] parts = line.Split(',');
-            if (parts.Length < 3)
+
+            // Use robust parser to handle quotes from Logger
+            var parts = ParseCsvLine(line);
+
+            if (parts.Count < 2) // Expect at least Date and Title
             {
-                Console.WriteLine($"Warning: Skipping line {lineIndex + 2} (invalid format, expected 3 columns): {line}");
                 continue;
             }
             
-            if (!DateTime.TryParseExact(parts[0].Trim(), "yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture, DateTimeStyles.None, out DateTime dateTime))
+            // Try parsing default ISO/System format first
+            if (!DateTime.TryParse(parts[0], CultureInfo.InvariantCulture, DateTimeStyles.None, out DateTime dateTime))
             {
-                Console.WriteLine($"Warning: Skipping line {lineIndex + 2} (invalid date format): {line}");
-                continue;
+                // Fallback to explicit format
+                if (!DateTime.TryParseExact(parts[0], "yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture, DateTimeStyles.None, out dateTime))
+                {
+                     continue;
+                }
             }
             
-            timeEntries.Add((dateTime, parts[1].Trim(), parts[2].Trim()));
+            string title = parts[1];
+            string status = parts.Count > 2 ? parts[2] : "Active";
+
+            timeEntries.Add((dateTime, title, status));
         }
         
         timeEntries = timeEntries.OrderBy(x => x.DateTime).ToList();
@@ -119,7 +159,6 @@ internal static class Program
                     Status = timeEntries[i].Status
                 });
             }
-            
         }
 
         // Group by Date, Application (extracted from WindowTitle), and Status. (WINDOWS tab)
@@ -219,8 +258,46 @@ internal static class Program
         Console.WriteLine($"Analysis complete. Output saved to {outputFile}");
     }
 
+    // Helper: Parse CSV line respecting quotes
+    private static List<string> ParseCsvLine(string line)
+    {
+        var result = new List<string>();
+        var current = new StringBuilder();
+        bool inQuotes = false;
+
+        for (int i = 0; i < line.Length; i++)
+        {
+            char c = line[i];
+            if (c == '\"')
+            {
+                // Handle escaped quotes
+                if (inQuotes && i + 1 < line.Length && line[i + 1] == '\"')
+                {
+                    current.Append('\"');
+                    i++;
+                }
+                else
+                {
+                    inQuotes = !inQuotes;
+                }
+            }
+            else if (c == ',' && !inQuotes)
+            {
+                result.Add(current.ToString());
+                current.Clear();
+            }
+            else
+            {
+                current.Append(c);
+            }
+        }
+        result.Add(current.ToString());
+        return result;
+    }
+
     private static bool IsExcluded(string title, List<ExclusionDefinition> exclusions)
     {
+        if (string.IsNullOrEmpty(title)) return false;
         return exclusions.Any(ex =>
             ex.Include.All(phrase =>
                 title.IndexOf(phrase, StringComparison.OrdinalIgnoreCase) >= 0));
@@ -228,6 +305,8 @@ internal static class Program
 
     private static string? MatchApplication(string title, List<ApplicationDefinition> apps)
     {
+        if (string.IsNullOrEmpty(title)) return null;
+        
         foreach (ApplicationDefinition app in apps)
         {
             bool includes = app.Include.All(phrase =>
@@ -245,6 +324,8 @@ internal static class Program
     static List<string> GetCategories(string appName, List<CategoryDefinition> categories)
     {
         List<string> matched = [];
+        if (string.IsNullOrEmpty(appName)) return matched;
+
         foreach (CategoryDefinition category in categories)
         {
             bool included = category.IncludeApplications?.Any(a =>
@@ -259,12 +340,11 @@ internal static class Program
         return matched;
     }
 
-    private static string ExtractAppName(string windowTitle) //TODO improve this
+    private static string ExtractAppName(string windowTitle)
     {
-        // Simple extraction - you might want to enhance this based on your window title format
-#pragma warning disable S3220 // Method calls should not resolve ambiguously to overloads with "params"
+        if (string.IsNullOrWhiteSpace(windowTitle)) return "Unknown";
+        // Simple heuristic: take the last part after a hyphen
         return windowTitle.Split('-', '—').Last().Trim();
-#pragma warning restore S3220 // Method calls should not resolve ambiguously to overloads with "params"
     }
 
     private static double CalculateTimeSpent(List<TimeSpan> timestamps)
@@ -275,12 +355,13 @@ internal static class Program
         double totalMinutes = timestamps.Sum(t => t.TotalMinutes);
         return Math.Round(totalMinutes, 2);
     }
-    private static void WriteWorksheet(XLWorkbook workbook, string sheetName, IEnumerable<object[]> rows, bool DisplayDate = false)
+
+    private static void WriteWorksheet(XLWorkbook workbook, string sheetName, IEnumerable<object[]> rows, bool displayDate = false)
     {
         IXLWorksheet worksheet = workbook.Worksheets.Add(sheetName);
 
         int dateCol = 0;
-        if(DisplayDate)
+        if(displayDate)
         {
             worksheet.Cell(1, 1).Value = "Date";
             dateCol = 1;
@@ -311,7 +392,7 @@ internal static class Program
             row++;
         }
 
-        IXLRange range = worksheet.Range(1, 1, row - 1, 4 + +dateCol);
+        IXLRange range = worksheet.Range(1, 1, row - 1, 4 + dateCol);
         range.Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
         range.Style.Border.InsideBorder = XLBorderStyleValues.Thin;
         worksheet.Columns().AdjustToContents();
