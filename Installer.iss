@@ -61,7 +61,7 @@ Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: de
 ;    /RL HIGHEST = Run with highest privileges (Admin)
 ;    /F = Force create (overwrite if exists)
 Filename: "schtasks"; \
-    Parameters: "/Create /F /TN ""{#MyAppName} Autostart"" /TR ""'""{app}\{#MyAppExeName}""'"" /SC LOGON /RL HIGHEST"; \
+    Parameters: "/Create /F /TN ""{#MyAppName} Autostart"" /TR ""{app}\{#MyAppExeName}"" /SC LOGON /RL HIGHEST"; \
     Flags: runhidden; \
     Tasks: startup
 
