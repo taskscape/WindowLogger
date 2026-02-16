@@ -691,7 +691,3 @@ Group applications into higher-level categories for aggregate reporting.
 3. WindowLogger will create a new `WindowLogger.csv` automatically
 
 ---
-
-## License
-
-This project is open source and available under the repository license.
