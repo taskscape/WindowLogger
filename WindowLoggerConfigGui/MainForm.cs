@@ -54,6 +54,9 @@ namespace WindowLoggerConfigGui
             "WindowLogger",
             "appsettings.json");
 
+        private static readonly string ProgramFilesPath = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
+        private static readonly string ProgramFilesX86Path = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86);
+
         private readonly string? _startupPath;
 
         public MainForm(string? startupPath = null)
@@ -320,6 +323,18 @@ namespace WindowLoggerConfigGui
         {
             string baseDir = AppDomain.CurrentDomain.BaseDirectory;
 
+            // Ensure writable ProgramData copy exists if we have a packaged config alongside the EXE
+            string localPath = Path.Combine(baseDir, "appsettings.json");
+            if (!File.Exists(DefaultConfigPath) && File.Exists(localPath))
+            {
+                TryCopyToDefault(localPath);
+            }
+            else if (!File.Exists(DefaultConfigPath) && !File.Exists(localPath))
+            {
+                // Seed an empty config in ProgramData so saves do not target Program Files
+                TrySaveEmptyDefault();
+            }
+
             // Preferred: shared ProgramData config
             if (File.Exists(DefaultConfigPath))
             {
@@ -328,7 +343,6 @@ namespace WindowLoggerConfigGui
             }
 
             // Fallbacks: alongside EXE or relative dev path
-            string localPath = Path.Combine(baseDir, "appsettings.json");
             if (File.Exists(localPath))
             {
                 LoadConfig(localPath);
@@ -420,6 +434,17 @@ namespace WindowLoggerConfigGui
                 SaveConfigAs();
                 return;
             }
+
+            // Redirect saves from Program Files to the writable ProgramData location
+            if (IsProgramFilesPath(_currentPath))
+            {
+                _currentPath = DefaultConfigPath;
+                if (!Directory.Exists(Path.GetDirectoryName(_currentPath)))
+                {
+                    Directory.CreateDirectory(Path.GetDirectoryName(_currentPath)!);
+                }
+            }
+
             SaveConfigToPath(_currentPath);
         }
 
@@ -462,6 +487,48 @@ namespace WindowLoggerConfigGui
             catch (Exception ex)
             {
                 MessageBox.Show(this, "Failed to save configuration:\n" + ex.Message, "Save Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+
+        private static bool IsProgramFilesPath(string path)
+        {
+            if (string.IsNullOrWhiteSpace(path)) return false;
+            return path.StartsWith(ProgramFilesPath, StringComparison.OrdinalIgnoreCase)
+                || path.StartsWith(ProgramFilesX86Path, StringComparison.OrdinalIgnoreCase);
+        }
+
+        private void TryCopyToDefault(string sourcePath)
+        {
+            try
+            {
+                string? dir = Path.GetDirectoryName(DefaultConfigPath);
+                if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
+                    Directory.CreateDirectory(dir);
+
+                if (!File.Exists(DefaultConfigPath))
+                    File.Copy(sourcePath, DefaultConfigPath, overwrite: false);
+            }
+            catch
+            {
+                // Non-fatal: fallback logic will still try local path
+            }
+        }
+
+        private void TrySaveEmptyDefault()
+        {
+            try
+            {
+                string? dir = Path.GetDirectoryName(DefaultConfigPath);
+                if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
+                    Directory.CreateDirectory(dir);
+
+                var options = new JsonSerializerOptions { WriteIndented = true };
+                string json = JsonSerializer.Serialize(new AppSettings(), options);
+                File.WriteAllText(DefaultConfigPath, json, new UTF8Encoding(false));
+            }
+            catch
+            {
+                // Non-fatal: UI will still allow manual save as
             }
         }
 
@@ -797,4 +864,3 @@ namespace WindowLoggerConfigGui
         }
     }
 }
-
