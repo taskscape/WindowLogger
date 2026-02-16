@@ -49,7 +49,10 @@ namespace WindowLoggerConfigGui
         private string? _currentPath;
         private bool _isDirty;
 
-        private const string DefaultRelativePath = @"..\..\..\WindowAnalyser\appsettings.json";
+        private static readonly string DefaultConfigPath = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
+            "WindowLogger",
+            "appsettings.json");
 
         private readonly string? _startupPath;
 
@@ -311,14 +314,20 @@ namespace WindowLoggerConfigGui
             {
                 TryLoadDefaultConfig();
             }
-
-            TryLoadDefaultConfig();
         }
 
         private void TryLoadDefaultConfig()
         {
             string baseDir = AppDomain.CurrentDomain.BaseDirectory;
 
+            // Preferred: shared ProgramData config
+            if (File.Exists(DefaultConfigPath))
+            {
+                LoadConfig(DefaultConfigPath);
+                return;
+            }
+
+            // Fallbacks: alongside EXE or relative dev path
             string localPath = Path.Combine(baseDir, "appsettings.json");
             if (File.Exists(localPath))
             {
@@ -326,10 +335,10 @@ namespace WindowLoggerConfigGui
                 return;
             }
 
-            string candidate = Path.GetFullPath(Path.Combine(baseDir, DefaultRelativePath));
-            if (File.Exists(candidate))
+            string devRelative = Path.GetFullPath(Path.Combine(baseDir, "..", "..", "..", "WindowAnalyser", "appsettings.json"));
+            if (File.Exists(devRelative))
             {
-                LoadConfig(candidate);
+                LoadConfig(devRelative);
                 return;
             }
 
@@ -360,6 +369,8 @@ namespace WindowLoggerConfigGui
                 dialog.Title = "Open appsettings.json";
                 if (!string.IsNullOrWhiteSpace(_currentPath))
                     dialog.InitialDirectory = Path.GetDirectoryName(_currentPath);
+                else
+                    dialog.InitialDirectory = Path.GetDirectoryName(DefaultConfigPath);
 
                 if (dialog.ShowDialog(this) == DialogResult.OK)
                     LoadConfig(dialog.FileName);
@@ -421,6 +432,8 @@ namespace WindowLoggerConfigGui
                 dialog.FileName = "appsettings.json";
                 if (!string.IsNullOrWhiteSpace(_currentPath))
                     dialog.InitialDirectory = Path.GetDirectoryName(_currentPath);
+                else
+                    dialog.InitialDirectory = Path.GetDirectoryName(DefaultConfigPath);
 
                 if (dialog.ShowDialog(this) == DialogResult.OK)
                     SaveConfigToPath(dialog.FileName);
@@ -431,6 +444,12 @@ namespace WindowLoggerConfigGui
         {
             try
             {
+                string? dir = Path.GetDirectoryName(path);
+                if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
+                {
+                    Directory.CreateDirectory(dir);
+                }
+
                 var options = new JsonSerializerOptions { WriteIndented = true };
                 string json = JsonSerializer.Serialize(_settings, options);
                 File.WriteAllText(path, json, new UTF8Encoding(false));
@@ -778,3 +797,4 @@ namespace WindowLoggerConfigGui
         }
     }
 }
+
