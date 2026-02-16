@@ -38,10 +38,12 @@ https://jrsoftware.org/
 
 After that you can begin with the compilation of the intaller. Simply use the right mouse button on the `Installer.iss` file and choose `Compile` option. Your installer should be created in the `\WindowLogger\Output\WindowLoggerInstaller.exe\` path depending on your configuration.
 
-### Step 3: Using the Logger
+## Usage
+
+### Step 1: Using the Logger
 App controller starts inside of the Tray menu (Windows taskbar). You can start and stop the logging of applications/windows by pressing the `Start Logging` and `Stop Logging` menu options. In there you can also generate a report of logging by pressing the `Generate Report Open` menu option. The app generates the report out of the `WindowLogger-yyMMdd.csv` file into the `Report-yyMMdd-hhMMss.xslx` readable `.xslx` file. The `.csv` files are being saved in the `C:\Users\$USER\AppData\Local\WindowLogger\` directory and the `.xslx` reports are being saved in the `C:\Users\$USER\Documents\WindowLogger\` directory.
 
-### Step 4: Configuration
+### Step 2: Configuration
 You can edit the configuration of the logging logic with our GUI interface by choosing the `Edit Configuration (GUI)` menu option, or simply edit the `.json` file by choosing the `Edit Configuration (JSON)` menu option. The `.json` configuration file is being saved in the `C:\ProgramData\WindowLogger\appsettings.json` directory.
 
 # Development version 
