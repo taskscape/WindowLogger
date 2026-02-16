@@ -9,6 +9,7 @@ public class TrayApplicationContext : ApplicationContext
     private Process? _loggerProcess;
     
     private const string LoggerProcessName = "WindowLogger";
+    private static readonly string LogFileName = $"WindowLogger-{DateTime.Now:yyMMdd}.csv";
 
     // 1. Executables
     private string LoggerExe => FindComponentPath("WindowLogger", "net10.0", "WindowLogger.exe");
@@ -19,7 +20,7 @@ public class TrayApplicationContext : ApplicationContext
     private string LogFile => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), 
         "WindowLogger", 
-        "WindowLogger.csv");
+        LogFileName);
     
     // 3. Config File (per-machine, writable)
     private string ConfigFile => Path.Combine(
@@ -305,4 +306,3 @@ public class TrayApplicationContext : ApplicationContext
         Application.Exit();
     }
 }
-
