@@ -8,9 +8,8 @@ internal static class Program
 {
     // Keep daily log files: WindowLogger-yymmdd.csv (captured once per run)
     private static readonly string LogFileName = $"WindowLogger-{DateTime.Now:yyMMdd}.csv";
-    private const string MutexName = "WindowLogger_App_UniqueString";
+    private const string MutexName = "WindowLogger_App_V2_UniqueString";
     private static readonly CancellationTokenSource Cts = new();
-    private static Mutex? _mutex;
     private static StreamWriter? _logWriter;
     private static string? _lastWindowTitle;
 
@@ -22,8 +21,7 @@ internal static class Program
 
     private static void Main(string[] args)
     {
-        bool createdNew;
-        _mutex = new Mutex(true, MutexName, out createdNew);
+        using var mutex = new Mutex(true, MutexName, out bool createdNew);
         if (!createdNew)
         {
             return;
@@ -68,9 +66,8 @@ internal static class Program
             _logWriter?.Dispose();
             if (createdNew)
             {
-                _mutex.ReleaseMutex();
+                mutex.ReleaseMutex();
             }
-            _mutex?.Dispose();
         }
     }
 
