@@ -439,9 +439,10 @@ namespace WindowLoggerConfigGui
             if (IsProgramFilesPath(_currentPath))
             {
                 _currentPath = DefaultConfigPath;
-                if (!Directory.Exists(Path.GetDirectoryName(_currentPath)))
+                string? directory = Path.GetDirectoryName(_currentPath);
+                if (!string.IsNullOrEmpty(directory) && !Directory.Exists(directory))
                 {
-                    Directory.CreateDirectory(Path.GetDirectoryName(_currentPath)!);
+                    Directory.CreateDirectory(directory);
                 }
             }
 
