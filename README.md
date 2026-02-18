@@ -58,6 +58,10 @@ You can start and stop the logging of applications/windows by pressing the `Star
 In there you can also generate a report of logging by pressing the `Generate Report Open` menu option. The app generates the report out of the `WindowLogger-yyMMdd.csv` file into the `Report-yyMMdd-hhMMss.xlsx` readable `.xlsx` file. The `.csv` files are being saved in the `C:\Users\$USER\AppData\Local\WindowLogger\` directory and the `.xlsx` reports are being saved in the `C:\Users\$USER\Documents\WindowLogger\` directory.
 
 ### Step 2: Configuration
+
+<img width="1014" height="661" alt="image" src="https://github.com/user-attachments/assets/f4a0a77a-a7d6-439d-a532-814b86aca479" />
+
+
 You can edit the configuration of the logging logic with our GUI interface by choosing the `Edit Configuration (GUI)` menu option, or simply edit the `.json` file by choosing the `Edit Configuration (JSON)` menu option. The `.json` configuration file is being saved in the `C:\ProgramData\WindowLogger\appsettings.json` directory.
 
 # Development version 
