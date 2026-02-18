@@ -28,7 +28,7 @@ dotnet build -c Release
 ```
 After that, your project will be ready to create an installer.
 
-### Step 2: Creating the intaller
+### Step 2: Creating the installer
 
 For the installer creation you'll need the Inno Setup. For the installation of the Inno Setup you can use Google or the link below.
 
@@ -36,7 +36,7 @@ For the installer creation you'll need the Inno Setup. For the installation of t
 https://jrsoftware.org/
 ```
 
-After that you can begin with the compilation of the intaller. Simply use the right mouse button on the `Installer.iss` file and choose `Compile` option. Your installer should be created in the `\WindowLogger\Output\WindowLoggerInstaller.exe` path depending on your configuration.
+After that you can begin with the compilation of the installer. Simply use the right mouse button on the `Installer.iss` file and choose `Compile` option. Your installer should be created in the `\WindowLogger\Output\WindowLoggerInstaller.exe` path depending on your configuration.
 
 ## Usage
 
