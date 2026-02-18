@@ -39,6 +39,7 @@ https://jrsoftware.org/
 After that you can begin with the compilation of the installer. Simply use the right mouse button on the `Installer.iss` file and choose `Compile` option. 
 
 <img width="653" height="177" alt="image" src="https://github.com/user-attachments/assets/33f73f67-4715-4590-aba2-e4bd22dd8abf" />
+
 Your installer should be created in the `\WindowLogger\Output\WindowLoggerInstaller.exe` path depending on your configuration.
 
 ## Usage
