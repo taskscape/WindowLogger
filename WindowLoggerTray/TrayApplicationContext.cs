@@ -6,10 +6,9 @@ namespace WindowLoggerTray;
 public class TrayApplicationContext : ApplicationContext
 {
     private readonly NotifyIcon _notifyIcon;
-    private Process? _loggerProcess;
     
     private const string LoggerProcessName = "WindowLogger";
-    private static readonly string LogFileName = $"WindowLogger-{DateTime.Now:yyMMdd}.csv";
+    private string LogFileName => $"WindowLogger-{DateTime.Now:yyMMdd}.csv";
 
     // 1. Executables
     private string LoggerExe => FindComponentPath("WindowLogger", "net10.0", "WindowLogger.exe");
@@ -28,7 +27,7 @@ public class TrayApplicationContext : ApplicationContext
         "WindowLogger",
         "appsettings.json");
 
-    // 4. Report File (Output): Documents\WindowLogger\Report-yymmdd-HHmmss.xlsx
+    // 4. Report File (Output): Documents\WindowLogger\Report-yyMMdd-HHmmss.xlsx
     private string ReportFile
     {
         get
@@ -262,10 +261,25 @@ public class TrayApplicationContext : ApplicationContext
                 // Force stop before deleting
                 StopLogger();
                 
-                // Slight delay to ensure file handle is released
-                Thread.Sleep(500);
-
-                if (File.Exists(LogFile)) File.Delete(LogFile);
+                // Retry a few times to allow the logger to release the file
+                const int maxAttempts = 5;
+                const int delayMs = 200;
+                for (int attempt = 0; attempt < maxAttempts; attempt++)
+                {
+                    try
+                    {
+                        if (File.Exists(LogFile))
+                        {
+                            using (File.Open(LogFile, FileMode.Open, FileAccess.ReadWrite, FileShare.None)) { }
+                            File.Delete(LogFile);
+                        }
+                        break;
+                    }
+                    catch (IOException) when (attempt < maxAttempts - 1)
+                    {
+                        Thread.Sleep(delayMs);
+                    }
+                }
 
                 // Restart
                 StartLogger();
