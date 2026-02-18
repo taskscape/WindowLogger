@@ -36,7 +36,7 @@ For the installer creation you'll need the Inno Setup. For the installation of t
 https://jrsoftware.org/
 ```
 
-After that you can begin with the compilation of the intaller. Simply use the right mouse button on the `Installer.iss` file and choose `Compile` option. Your installer should be created in the `\WindowLogger\Output\WindowLoggerInstaller.exe\` path depending on your configuration.
+After that you can begin with the compilation of the intaller. Simply use the right mouse button on the `Installer.iss` file and choose `Compile` option. Your installer should be created in the `\WindowLogger\Output\WindowLoggerInstaller.exe` path depending on your configuration.
 
 ## Usage
 
