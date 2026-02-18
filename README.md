@@ -45,7 +45,17 @@ Your installer should be created in the `\WindowLogger\Output\WindowLoggerInstal
 ## Usage
 
 ### Step 1: Using the Logger
-App controller starts inside of the Tray menu (Windows taskbar). You can start and stop the logging of applications/windows by pressing the `Start Logging` and `Stop Logging` menu options. In there you can also generate a report of logging by pressing the `Generate Report Open` menu option. The app generates the report out of the `WindowLogger-yyMMdd.csv` file into the `Report-yyMMdd-hhMMss.xlsx` readable `.xlsx` file. The `.csv` files are being saved in the `C:\Users\$USER\AppData\Local\WindowLogger\` directory and the `.xlsx` reports are being saved in the `C:\Users\$USER\Documents\WindowLogger\` directory.
+App controller starts inside of the Tray menu (Windows taskbar). 
+
+<img width="152" height="53" alt="image" src="https://github.com/user-attachments/assets/8e2b963a-016f-477c-832e-0e3ac0f91ce9" />
+
+
+You can start and stop the logging of applications/windows by pressing the `Start Logging` and `Stop Logging` menu options. 
+
+<img width="215" height="200" alt="image" src="https://github.com/user-attachments/assets/988b5b91-5ea3-484d-b028-7173dcc93fc1" />
+
+
+In there you can also generate a report of logging by pressing the `Generate Report Open` menu option. The app generates the report out of the `WindowLogger-yyMMdd.csv` file into the `Report-yyMMdd-hhMMss.xlsx` readable `.xlsx` file. The `.csv` files are being saved in the `C:\Users\$USER\AppData\Local\WindowLogger\` directory and the `.xlsx` reports are being saved in the `C:\Users\$USER\Documents\WindowLogger\` directory.
 
 ### Step 2: Configuration
 You can edit the configuration of the logging logic with our GUI interface by choosing the `Edit Configuration (GUI)` menu option, or simply edit the `.json` file by choosing the `Edit Configuration (JSON)` menu option. The `.json` configuration file is being saved in the `C:\ProgramData\WindowLogger\appsettings.json` directory.
