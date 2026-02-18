@@ -33,6 +33,10 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
 Name: "startup"; Description: "Start Window Logger automatically with Windows (Elevated/Admin)"; GroupDescription: "Startup options";
 
+[Dirs]
+; Allow the app to read/write config under ProgramData
+Name: "{commonappdata}\{#MyAppFolderName}"; Permissions: users-modify
+
 [Files]
 ; NOTE: Relative paths assume the .iss file is located next to the .sln file
 
@@ -45,6 +49,8 @@ Source: "WindowLogger\bin\Release\net10.0\*"; DestDir: "{app}"; Flags: ignorever
 ; 3. Analyser (Reports + Config)
 ; This contains 'appsettings.json', which will be the default configuration
 Source: "WindowAnalyser\bin\Release\net10.0\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+; Seed ProgramData with the default appsettings.json so the apps can read/write it without manual setup
+Source: "WindowAnalyser\bin\Release\net10.0\appsettings.json"; DestDir: "{commonappdata}\{#MyAppFolderName}"; Flags: ignoreversion onlyifdoesntexist
 
 ; 4. Config GUI (Editor)
 Source: "WindowLoggerConfigGui\bin\Release\net48\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
@@ -60,8 +66,8 @@ Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: de
 ;    /SC LOGON = Trigger at logon
 ;    /RL HIGHEST = Run with highest privileges (Admin)
 ;    /F = Force create (overwrite if exists)
-Filename: "schtasks"; \
-    Parameters: "/Create /F /TN ""{#MyAppName} Autostart"" /TR ""{app}\{#MyAppExeName}"" /SC LOGON /RL HIGHEST"; \
+Filename: "{sys}\schtasks.exe"; \
+    Parameters: "/Create /F /TN ""{#MyAppName} Autostart"" /TR ""'""{app}\{#MyAppExeName}""'"" /SC LOGON /RL HIGHEST"; \
     Flags: runhidden; \
     Tasks: startup
 
@@ -70,5 +76,4 @@ Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChang
 
 [UninstallRun]
 ; Remove the Scheduled Task when uninstalling
-Filename: "schtasks"; Parameters: "/Delete /TN ""{#MyAppName} Autostart"" /F"; Flags: runhidden
-
+Filename: "{sys}\schtasks.exe"; Parameters: "/Delete /TN ""{#MyAppName} Autostart"" /F"; Flags: runhidden
