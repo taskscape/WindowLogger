@@ -6,11 +6,10 @@ namespace WindowLogger;
 
 internal static class Program
 {
-    // Keep daily log files: WindowLogger-yymmdd.csv (captured once per run)
-    private static readonly string LogFileName = $"WindowLogger-{DateTime.Now:yyMMdd}.csv";
     private const string MutexName = "WindowLogger_App_V2_UniqueString";
     private static readonly CancellationTokenSource Cts = new();
     private static StreamWriter? _logWriter;
+    private static string? _currentLogPath;
     private static string? _lastWindowTitle;
 
     [DllImport("user32.dll")]
@@ -35,24 +34,9 @@ internal static class Program
 
         try
         {
-            string logPath = ResolveLogPath(args);
-            string? logDir = Path.GetDirectoryName(logPath);
-            if (!string.IsNullOrEmpty(logDir) && !Directory.Exists(logDir))
-            {
-                Directory.CreateDirectory(logDir);
-            }
-
-            bool writeHeader = !File.Exists(logPath) || new FileInfo(logPath).Length == 0;
-            using var fileStream = new FileStream(logPath, FileMode.Append, FileAccess.Write, FileShare.Read);
-            _logWriter = new StreamWriter(fileStream, Encoding.UTF8) { AutoFlush = true };
-
-            if (writeHeader)
-            {
-                _logWriter.WriteLine("Timestamp,WindowTitle");
-            }
-
             while (!Cts.IsCancellationRequested)
             {
+                EnsureLogWriter(args);
                 LogActiveWindow();
                 Cts.Token.WaitHandle.WaitOne(1000);
             }
@@ -71,7 +55,37 @@ internal static class Program
         }
     }
 
-    private static string ResolveLogPath(string[] args)
+    private static void EnsureLogWriter(string[] args)
+    {
+        string path = BuildLogPath(args);
+        if (path == _currentLogPath && _logWriter != null)
+        {
+            return;
+        }
+
+        _logWriter?.Dispose();
+
+        string? logDir = Path.GetDirectoryName(path);
+        if (!string.IsNullOrEmpty(logDir) && !Directory.Exists(logDir))
+        {
+            Directory.CreateDirectory(logDir);
+        }
+
+        bool writeHeader = !File.Exists(path) || new FileInfo(path).Length == 0;
+        _logWriter = new StreamWriter(new FileStream(path, FileMode.Append, FileAccess.Write, FileShare.Read), Encoding.UTF8)
+        {
+            AutoFlush = true
+        };
+
+        if (writeHeader)
+        {
+            _logWriter.WriteLine("Timestamp,WindowTitle");
+        }
+
+        _currentLogPath = path;
+    }
+
+    private static string BuildLogPath(string[] args)
     {
         if (args.Length > 0 && !string.IsNullOrWhiteSpace(args[0]))
         {
@@ -79,7 +93,8 @@ internal static class Program
         }
 
         string appData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-        return Path.Combine(appData, "WindowLogger", LogFileName);
+        string fileName = $"WindowLogger-{DateTime.Now:yyMMdd}.csv";
+        return Path.Combine(appData, "WindowLogger", fileName);
     }
 
     private static void LogActiveWindow()
