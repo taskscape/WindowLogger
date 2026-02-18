@@ -1,6 +1,6 @@
-# Window Logger
+# WindowLogger
 
-Window Logger is a productivity tracking tool that monitors active windows and analyzes time spent across applications and categories. The system consists of a suite of .NET applications (Logger, Analyser, Tray Controller, Config GUI) that work together to provide insights into computer usage patterns.
+WindowLogger is a productivity tracking tool that monitors active windows and analyzes time spent across applications and categories. The system consists of a suite of .NET applications (Logger, Analyser, Tray Controller, Config GUI) that work together to provide insights into computer usage patterns.
 
 ---
 
@@ -16,6 +16,55 @@ The system runs discretely in the system tray and consists of four components:
 
 ---
 
+# Release version 
+## Installation
+
+### Step 1: Preparing the project for the `Release` mode
+
+Firstly in the `WindowLogger` directory you'll have to run this command in the terminal:
+
+```bash
+dotnet build -c Release
+```
+After that, your project will be ready to create an installer.
+
+### Step 2: Creating the installer
+
+For the installer creation you'll need the Inno Setup. For the installation of the Inno Setup you can use Google or the link below.
+
+```
+https://jrsoftware.org/
+```
+
+After that you can begin with the compilation of the installer. Simply use the right mouse button on the `Installer.iss` file and choose `Compile` option. 
+
+<img width="653" height="177" alt="image" src="https://github.com/user-attachments/assets/33f73f67-4715-4590-aba2-e4bd22dd8abf" />
+
+Your installer should be created in the `\WindowLogger\Output\WindowLoggerInstaller.exe` path depending on your configuration.
+
+## Usage
+
+### Step 1: Using the Logger
+App controller starts inside of the Tray menu (Windows taskbar). 
+
+<img width="152" height="53" alt="image" src="https://github.com/user-attachments/assets/8e2b963a-016f-477c-832e-0e3ac0f91ce9" />
+
+
+You can start and stop the logging of applications/windows by pressing the `Start Logging` and `Stop Logging` menu options. 
+
+<img width="215" height="200" alt="image" src="https://github.com/user-attachments/assets/988b5b91-5ea3-484d-b028-7173dcc93fc1" />
+
+
+In there you can also generate a report of logging by pressing the `Generate Report Open` menu option. The app generates the report out of the `WindowLogger-yyMMdd.csv` file into the `Report-yyMMdd-hhMMss.xlsx` readable `.xlsx` file. The `.csv` files are being saved in the `C:\Users\$USER\AppData\Local\WindowLogger\` directory and the `.xlsx` reports are being saved in the `C:\Users\$USER\Documents\WindowLogger\` directory.
+
+### Step 2: Configuration
+
+<img width="1014" height="661" alt="image" src="https://github.com/user-attachments/assets/f4a0a77a-a7d6-439d-a532-814b86aca479" />
+
+
+You can edit the configuration of the logging logic with our GUI interface by choosing the `Edit Configuration (GUI)` menu option, or simply edit the `.json` file by choosing the `Edit Configuration (JSON)` menu option. The `.json` configuration file is being saved in the `C:\ProgramData\WindowLogger\appsettings.json` directory.
+
+# Development version 
 ## Quick Start
 
 ### Step 1: Build 
@@ -660,7 +709,3 @@ Group applications into higher-level categories for aggregate reporting.
 3. WindowLogger will create a new `WindowLogger.csv` automatically
 
 ---
-
-## License
-
-This project is open source and available under the repository license.

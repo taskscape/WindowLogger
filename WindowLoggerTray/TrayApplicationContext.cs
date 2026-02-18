@@ -6,21 +6,38 @@ namespace WindowLoggerTray;
 public class TrayApplicationContext : ApplicationContext
 {
     private readonly NotifyIcon _notifyIcon;
-    private Process? _loggerProcess;
     
-    // 1. Executables: Located in their respective project build folders
+    private const string LoggerProcessName = "WindowLogger";
+    private string LogFileName => $"WindowLogger-{DateTime.Now:yyMMdd}.csv";
+
+    // 1. Executables
     private string LoggerExe => FindComponentPath("WindowLogger", "net10.0", "WindowLogger.exe");
     private string AnalyserExe => FindComponentPath("WindowAnalyser", "net10.0", "WindowAnalyser.exe");
     private string ConfigGuiExe => FindComponentPath("WindowLoggerConfigGui", "net48", "WindowLoggerConfigGui.exe");
     
-    // 2. Data File (CSV): Located in the WindowLogger directory (producer owns the data)
-    private string LogFile => Path.Combine(Path.GetDirectoryName(LoggerExe) ?? string.Empty, "WindowLogger.csv");
+    // 2. Data File (Input): Read from %LocalAppData%\WindowLogger
+    private string LogFile => Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), 
+        "WindowLogger", 
+        LogFileName);
     
-    // 3. Config File: Located in the WindowAnalyser directory
-    private string ConfigFile => Path.Combine(Path.GetDirectoryName(AnalyserExe) ?? string.Empty, "appsettings.json");
+    // 3. Config File (per-machine, writable)
+    private string ConfigFile => Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
+        "WindowLogger",
+        "appsettings.json");
 
-    // 4. Report File: Generated in the Tray directory (for easy user access)
-    private string ReportFile => Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Report.xlsx");
+    // 4. Report File (Output): Documents\WindowLogger\Report-yyMMdd-HHmmss.xlsx
+    private string ReportFile
+    {
+        get
+        {
+            string docsDir = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
+            string appDir = Path.Combine(docsDir, "WindowLogger");
+            string fileName = $"Report-{DateTime.Now:yyMMdd-HHmmss}.xlsx";
+            return Path.Combine(appDir, fileName);
+        }
+    }
 
     // Menu items
     private ToolStripMenuItem _startLoggingItem = null!;
@@ -37,23 +54,27 @@ public class TrayApplicationContext : ApplicationContext
 
         _notifyIcon.ContextMenuStrip = CreateContextMenu();
         
-        CheckExistingProcess();
+        // Timer to periodically check if logger is alive (updates the icon menu state)
+        var timer = new System.Windows.Forms.Timer();
+        timer.Interval = 2000; // Check every 2 seconds
+        timer.Tick += (s, e) => CheckProcessState();
+        timer.Start();
+
+        CheckProcessState();
     }
     
     private string FindComponentPath(string projectName, string framework, string fileName)
     {
         string baseDir = AppDomain.CurrentDomain.BaseDirectory;
-        // Prefer the project build output (development mode) if it exists
         string config = baseDir.Contains("Release") ? "Release" : "Debug";
         string solutionDir = Path.GetFullPath(Path.Combine(baseDir, "..", "..", "..", ".."));
         string projectPath = Path.Combine(solutionDir, projectName, "bin", config, framework, fileName);
+        
         if (File.Exists(projectPath)) return projectPath;
 
-        // Fallback to a local copy in the tray folder
         string localPath = Path.Combine(baseDir, fileName);
         if (File.Exists(localPath)) return localPath;
 
-        // Last-resort: return the project path even if missing (caller may show helpful errors)
         return projectPath;
     }
 
@@ -81,13 +102,18 @@ public class TrayApplicationContext : ApplicationContext
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add("Exit", null, (s, e) => Exit());
 
-        UpdateMenuState();
-        return menu;
+        return menu; // State is updated by Timer
     }
 
     private void StartLogger()
     {
-        if (_loggerProcess != null && !_loggerProcess.HasExited) return;
+        // 1. Double check if already running to prevent duplicates
+        if (Process.GetProcessesByName(LoggerProcessName).Length > 0)
+        {
+            _notifyIcon.ShowBalloonTip(1000, "Window Logger", "Logger is already running.", ToolTipIcon.Info);
+            CheckProcessState();
+            return;
+        }
 
         if (!File.Exists(LoggerExe))
         {
@@ -105,17 +131,9 @@ public class TrayApplicationContext : ApplicationContext
                 WorkingDirectory = Path.GetDirectoryName(LoggerExe)
             };
 
-            // Pass explicit log file path as first argument so the logger can write to the intended folder
-            try
-            {
-                startInfo.Arguments = $"\"{LogFile}\"";
-            }
-            catch
-            {
-                // ignore formatting issues; starting without args is better than failing here
-            }
+            startInfo.Arguments = $"\"{LogFile}\"";
 
-            _loggerProcess = Process.Start(startInfo);
+            Process.Start(startInfo);
             _notifyIcon.ShowBalloonTip(3000, "Window Logger", "Logging started.", ToolTipIcon.Info);
         }
         catch (Exception ex)
@@ -123,18 +141,26 @@ public class TrayApplicationContext : ApplicationContext
             ShowError($"Failed to start logger: {ex.Message}");
         }
 
-        UpdateMenuState();
+        CheckProcessState();
     }
 
     private void StopLogger()
     {
-        if (_loggerProcess == null || _loggerProcess.HasExited) return;
-
+        // FORCE KILL: Instead of relying on a variable, we ask Windows to kill the process by name.
+        // This solves issues where the Tray app lost the reference to the process.
         try
         {
-            _loggerProcess.Kill();
-            _loggerProcess.WaitForExit(1000);
-            _loggerProcess = null;
+            var psi = new ProcessStartInfo
+            {
+                FileName = "taskkill",
+                Arguments = $"/F /IM {LoggerProcessName}.exe",
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+            
+            var proc = Process.Start(psi);
+            proc?.WaitForExit();
+
             _notifyIcon.ShowBalloonTip(3000, "Window Logger", "Logging stopped.", ToolTipIcon.Info);
         }
         catch (Exception ex)
@@ -142,7 +168,7 @@ public class TrayApplicationContext : ApplicationContext
             ShowError($"Failed to stop logger: {ex.Message}");
         }
 
-        UpdateMenuState();
+        CheckProcessState();
     }
 
     private void RunAnalysis()
@@ -153,32 +179,37 @@ public class TrayApplicationContext : ApplicationContext
             return;
         }
 
-        // Logic check: Verify if the CSV exists in the REMOTE (Logger) folder
         if (!File.Exists(LogFile))
         {
             ShowError($"No log file found at:\n{LogFile}\n\nPlease run the logger first to generate data.");
             return;
         }
 
+        string reportPath = ReportFile; // capture once to avoid timestamp drift
         try
         {
+            // Ensure output directory exists in Documents
+            string? reportDir = Path.GetDirectoryName(reportPath);
+            if (!string.IsNullOrEmpty(reportDir) && !Directory.Exists(reportDir))
+            {
+                Directory.CreateDirectory(reportDir);
+            }
+
             var startInfo = new ProcessStartInfo
             {
                 FileName = AnalyserExe,
-                // Arguments: [Input: Path to Logger's CSV] [Output: Path to Tray's Report]
-                Arguments = $"\"{LogFile}\" \"{ReportFile}\"",
+                Arguments = $"\"{LogFile}\" \"{reportPath}\"",
                 UseShellExecute = false,
                 CreateNoWindow = true,
-                // Analyser needs to run in its own folder to find appsettings.json
                 WorkingDirectory = Path.GetDirectoryName(AnalyserExe) 
             };
 
             var process = Process.Start(startInfo);
             process?.WaitForExit();
 
-            if (File.Exists(ReportFile))
+            if (File.Exists(reportPath))
             {
-                new Process { StartInfo = new ProcessStartInfo(ReportFile) { UseShellExecute = true } }.Start();
+                new Process { StartInfo = new ProcessStartInfo(reportPath) { UseShellExecute = true } }.Start();
             }
             else
             {
@@ -195,7 +226,12 @@ public class TrayApplicationContext : ApplicationContext
     {
         if (File.Exists(ConfigGuiExe))
         {
-            Process.Start(new ProcessStartInfo(ConfigGuiExe) { UseShellExecute = true });
+            var startInfo = new ProcessStartInfo(ConfigGuiExe)
+            {
+                UseShellExecute = true,
+                Arguments = $"\"{ConfigFile}\""
+            };
+            Process.Start(startInfo);
         }
         else
         {
@@ -222,12 +258,31 @@ public class TrayApplicationContext : ApplicationContext
         {
             try
             {
-                bool wasRunning = _loggerProcess != null && !_loggerProcess.HasExited;
-                if (wasRunning) StopLogger();
+                // Force stop before deleting
+                StopLogger();
+                
+                // Retry a few times to allow the logger to release the file
+                const int maxAttempts = 5;
+                const int delayMs = 200;
+                for (int attempt = 0; attempt < maxAttempts; attempt++)
+                {
+                    try
+                    {
+                        if (File.Exists(LogFile))
+                        {
+                            using (File.Open(LogFile, FileMode.Open, FileAccess.ReadWrite, FileShare.None)) { }
+                            File.Delete(LogFile);
+                        }
+                        break;
+                    }
+                    catch (IOException) when (attempt < maxAttempts - 1)
+                    {
+                        Thread.Sleep(delayMs);
+                    }
+                }
 
-                if (File.Exists(LogFile)) File.Delete(LogFile);
-
-                if (wasRunning) StartLogger();
+                // Restart
+                StartLogger();
                 
                 _notifyIcon.ShowBalloonTip(3000, "Data Cleared", "Log file has been deleted.", ToolTipIcon.Info);
             }
@@ -238,21 +293,17 @@ public class TrayApplicationContext : ApplicationContext
         }
     }
 
-    private void CheckExistingProcess()
+    private void CheckProcessState()
     {
-        var existing = Process.GetProcessesByName(Path.GetFileNameWithoutExtension(LoggerExe));
-        if (existing.Length > 0)
+        var existing = Process.GetProcessesByName(LoggerProcessName);
+        bool isRunning = existing.Length > 0;
+        
+        // Safely update UI on the UI thread
+        if (_startLoggingItem != null && _stopLoggingItem != null)
         {
-            _loggerProcess = existing[0];
+            _startLoggingItem.Enabled = !isRunning;
+            _stopLoggingItem.Enabled = isRunning;
         }
-        UpdateMenuState();
-    }
-
-    private void UpdateMenuState()
-    {
-        bool isRunning = _loggerProcess != null && !_loggerProcess.HasExited;
-        _startLoggingItem.Enabled = !isRunning;
-        _stopLoggingItem.Enabled = isRunning;
     }
 
     private void ShowError(string message)
@@ -262,12 +313,10 @@ public class TrayApplicationContext : ApplicationContext
 
     private void Exit()
     {
-        if (_loggerProcess != null && !_loggerProcess.HasExited)
-        {
-            StopLogger();
-        }
+        // Optional: Stop logger on exit?
+        // StopLogger(); 
+        
         _notifyIcon.Visible = false;
         Application.Exit();
     }
 }
-

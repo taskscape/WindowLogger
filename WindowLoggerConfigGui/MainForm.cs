@@ -49,10 +49,19 @@ namespace WindowLoggerConfigGui
         private string? _currentPath;
         private bool _isDirty;
 
-        private const string DefaultRelativePath = @"..\..\..\WindowAnalyser\appsettings.json";
+        private static readonly string DefaultConfigPath = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
+            "WindowLogger",
+            "appsettings.json");
 
-        public MainForm()
+        private static readonly string ProgramFilesPath = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
+        private static readonly string ProgramFilesX86Path = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86);
+
+        private readonly string? _startupPath;
+
+        public MainForm(string? startupPath = null)
         {
+            _startupPath = startupPath;
             Text = "Window Logger Configuration";
             MinimumSize = new Size(980, 640);
             StartPosition = FormStartPosition.CenterScreen;
@@ -300,24 +309,50 @@ namespace WindowLoggerConfigGui
             _categoryUpdateButton.Click += (_, __) => UpdateCategory();
             _categoryRemoveButton.Click += (_, __) => RemoveCategory();
 
-            TryLoadDefaultConfig();
+            if (!string.IsNullOrWhiteSpace(_startupPath) && File.Exists(_startupPath))
+            {
+                LoadConfig(_startupPath);
+            }
+            else
+            {
+                TryLoadDefaultConfig();
+            }
         }
 
         private void TryLoadDefaultConfig()
         {
             string baseDir = AppDomain.CurrentDomain.BaseDirectory;
 
+            // Ensure writable ProgramData copy exists if we have a packaged config alongside the EXE
             string localPath = Path.Combine(baseDir, "appsettings.json");
+            if (!File.Exists(DefaultConfigPath) && File.Exists(localPath))
+            {
+                TryCopyToDefault(localPath);
+            }
+            else if (!File.Exists(DefaultConfigPath) && !File.Exists(localPath))
+            {
+                // Seed an empty config in ProgramData so saves do not target Program Files
+                TrySaveEmptyDefault();
+            }
+
+            // Preferred: shared ProgramData config
+            if (File.Exists(DefaultConfigPath))
+            {
+                LoadConfig(DefaultConfigPath);
+                return;
+            }
+
+            // Fallbacks: alongside EXE or relative dev path
             if (File.Exists(localPath))
             {
                 LoadConfig(localPath);
                 return;
             }
 
-            string candidate = Path.GetFullPath(Path.Combine(baseDir, DefaultRelativePath));
-            if (File.Exists(candidate))
+            string devRelative = Path.GetFullPath(Path.Combine(baseDir, "..", "..", "..", "WindowAnalyser", "appsettings.json"));
+            if (File.Exists(devRelative))
             {
-                LoadConfig(candidate);
+                LoadConfig(devRelative);
                 return;
             }
 
@@ -348,6 +383,8 @@ namespace WindowLoggerConfigGui
                 dialog.Title = "Open appsettings.json";
                 if (!string.IsNullOrWhiteSpace(_currentPath))
                     dialog.InitialDirectory = Path.GetDirectoryName(_currentPath);
+                else
+                    dialog.InitialDirectory = Path.GetDirectoryName(DefaultConfigPath);
 
                 if (dialog.ShowDialog(this) == DialogResult.OK)
                     LoadConfig(dialog.FileName);
@@ -397,6 +434,18 @@ namespace WindowLoggerConfigGui
                 SaveConfigAs();
                 return;
             }
+
+            // Redirect saves from Program Files to the writable ProgramData location
+            if (IsProgramFilesPath(_currentPath))
+            {
+                _currentPath = DefaultConfigPath;
+                string? directory = Path.GetDirectoryName(_currentPath);
+                if (!string.IsNullOrEmpty(directory) && !Directory.Exists(directory))
+                {
+                    Directory.CreateDirectory(directory);
+                }
+            }
+
             SaveConfigToPath(_currentPath);
         }
 
@@ -409,6 +458,8 @@ namespace WindowLoggerConfigGui
                 dialog.FileName = "appsettings.json";
                 if (!string.IsNullOrWhiteSpace(_currentPath))
                     dialog.InitialDirectory = Path.GetDirectoryName(_currentPath);
+                else
+                    dialog.InitialDirectory = Path.GetDirectoryName(DefaultConfigPath);
 
                 if (dialog.ShowDialog(this) == DialogResult.OK)
                     SaveConfigToPath(dialog.FileName);
@@ -419,6 +470,12 @@ namespace WindowLoggerConfigGui
         {
             try
             {
+                string? dir = Path.GetDirectoryName(path);
+                if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
+                {
+                    Directory.CreateDirectory(dir);
+                }
+
                 var options = new JsonSerializerOptions { WriteIndented = true };
                 string json = JsonSerializer.Serialize(_settings, options);
                 File.WriteAllText(path, json, new UTF8Encoding(false));
@@ -431,6 +488,48 @@ namespace WindowLoggerConfigGui
             catch (Exception ex)
             {
                 MessageBox.Show(this, "Failed to save configuration:\n" + ex.Message, "Save Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+
+        private static bool IsProgramFilesPath(string path)
+        {
+            if (string.IsNullOrWhiteSpace(path)) return false;
+            return path.StartsWith(ProgramFilesPath, StringComparison.OrdinalIgnoreCase)
+                || path.StartsWith(ProgramFilesX86Path, StringComparison.OrdinalIgnoreCase);
+        }
+
+        private void TryCopyToDefault(string sourcePath)
+        {
+            try
+            {
+                string? dir = Path.GetDirectoryName(DefaultConfigPath);
+                if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
+                    Directory.CreateDirectory(dir);
+
+                if (!File.Exists(DefaultConfigPath))
+                    File.Copy(sourcePath, DefaultConfigPath, overwrite: false);
+            }
+            catch
+            {
+                // Non-fatal: fallback logic will still try local path
+            }
+        }
+
+        private void TrySaveEmptyDefault()
+        {
+            try
+            {
+                string? dir = Path.GetDirectoryName(DefaultConfigPath);
+                if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
+                    Directory.CreateDirectory(dir);
+
+                var options = new JsonSerializerOptions { WriteIndented = true };
+                string json = JsonSerializer.Serialize(new AppSettings(), options);
+                File.WriteAllText(DefaultConfigPath, json, new UTF8Encoding(false));
+            }
+            catch
+            {
+                // Non-fatal: UI will still allow manual save as
             }
         }
 
