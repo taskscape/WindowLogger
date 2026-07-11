@@ -9,8 +9,8 @@ Window Logger is a productivity tracking tool that monitors active windows and a
 The system runs discretely in the system tray and consists of four components:
 
 2. **WindowLogger** - A background process that monitors and logs active windows.
-3. **WindowLoggerTray** (Controller) - A system tray app that manages the background logger and provides quick access to actions.
-4. **WindowLoggerConfigGui** - A visual editor for configuration rules.
+3. **WindowLoggerTray** (Controller) - A WPF system tray app that manages the background logger and provides quick access to actions.
+4. **WindowLoggerConfigGui** - A WPF visual editor for configuration rules.
 5. **WindowAnalyser** - Analyzes logs and generates detailed Excel reports.
 
 
@@ -580,6 +580,7 @@ Group applications into higher-level categories for aggregate reporting.
 
 - **Operating System**: Windows (uses Win32 APIs for window tracking)
 - **.NET Runtime**: .NET 10.0 or higher
+- **Desktop UI**: Windows Presentation Foundation (WPF)
 - **Excel Viewer**: Microsoft Excel or compatible spreadsheet application
 
 ### Dependencies
