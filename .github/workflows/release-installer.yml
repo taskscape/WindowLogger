@@ -35,8 +35,11 @@ jobs:
 
           $eligibleBranches = @()
           foreach ($branch in @('main', 'master')) {
-            git ls-remote --exit-code --heads origin $branch *> $null
+            $remoteBranch = @(git ls-remote --heads origin "refs/heads/$branch")
             if ($LASTEXITCODE -ne 0) {
+              throw "Could not query origin/$branch."
+            }
+            if ($remoteBranch.Count -eq 0) {
               continue
             }
 
@@ -46,8 +49,11 @@ jobs:
             }
 
             git merge-base --is-ancestor $tagCommit "origin/$branch"
-            if ($LASTEXITCODE -eq 0) {
+            $ancestorExitCode = $LASTEXITCODE
+            if ($ancestorExitCode -eq 0) {
               $eligibleBranches += $branch
+            } elseif ($ancestorExitCode -ne 1) {
+              throw "Could not compare tag commit with origin/$branch (git exit code $ancestorExitCode)."
             }
           }
 
@@ -58,6 +64,7 @@ jobs:
           "version=$version" >> $env:GITHUB_OUTPUT
           "commit=$tagCommit" >> $env:GITHUB_OUTPUT
           "branch=$($eligibleBranches[0])" >> $env:GITHUB_OUTPUT
+          exit 0
 
       - name: Set up .NET 10
         uses: actions/setup-dotnet@v5
