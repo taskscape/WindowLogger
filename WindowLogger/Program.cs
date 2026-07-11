@@ -1,39 +1,50 @@
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text;
-using System.Timers;
-using Timer = System.Timers.Timer;
 
 namespace WindowLogger;
 
 internal static class Program
 {
-    private static Timer? _timer;
     private const string LogFileName = "WindowLogger.csv";
-    private static string? _lastWindowTitle = "";
-    private static string? _lastExecutableName = "";
+    private static readonly TimeSpan PollInterval = TimeSpan.FromMilliseconds(500);
+    private static readonly TimeSpan InactivityThreshold = TimeSpan.FromMinutes(1);
+
+    private static string _lastWindowTitle = string.Empty;
+    private static string _lastExecutableName = string.Empty;
+    private static uint _lastProcessId;
     private static bool _inactive;
-    private const double MinutesToInactive = 1;
     private static StreamWriter? _logWriter;
-    private static readonly object _logLock = new object();
+    private static readonly object LogLock = new();
 
     [DllImport("user32.dll")]
     private static extern IntPtr GetForegroundWindow();
 
-    [DllImport("user32.dll", SetLastError = true)]
-    private static extern int GetWindowText(IntPtr hWnd, StringBuilder lpString, int nMaxCount);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode, ExactSpelling = true, SetLastError = true)]
+    private static extern int GetWindowTextW(IntPtr hWnd, StringBuilder lpString, int nMaxCount);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode, ExactSpelling = true, SetLastError = true)]
+    private static extern int GetWindowTextLengthW(IntPtr hWnd);
 
     [DllImport("user32.dll")]
     private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
 
-    static void Main(string[] args)
+    private static void Main(string[] args)
     {
         Console.WriteLine("Active window logger started.");
-        
-        string logPath = Path.Combine(AppContext.BaseDirectory, LogFileName);
+
+        string logPath = args.Length > 0 && !args[0].StartsWith("--", StringComparison.Ordinal)
+            ? args[0]
+            : Path.Combine(AppContext.BaseDirectory, LogFileName);
+
+        string? logDirectory = Path.GetDirectoryName(Path.GetFullPath(logPath));
+        if (!string.IsNullOrEmpty(logDirectory))
+        {
+            Directory.CreateDirectory(logDirectory);
+        }
 
         bool writeHeader = !File.Exists(logPath) || new FileInfo(logPath).Length == 0;
-        _logWriter = new StreamWriter(logPath, append: true, Encoding.UTF8)
+        _logWriter = new StreamWriter(logPath, append: true, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false))
         {
             AutoFlush = true
         };
@@ -41,44 +52,105 @@ internal static class Program
         if (writeHeader)
         {
             _logWriter.WriteLine("Timestamp,WindowTitle,Status");
-            _logWriter.Flush();
         }
-        
-        _timer = new Timer(100); 
-        _timer.Elapsed += TimerElapsed;
-        _timer.AutoReset = true;
-        _timer.Start();
+
+        using var cancellation = new CancellationTokenSource();
+        Console.CancelKeyPress += (_, e) =>
+        {
+            e.Cancel = true;
+            cancellation.Cancel();
+        };
+
+        Task pollingTask = PollAsync(cancellation.Token);
+
+        try
+        {
+            WaitForShutdown(args, cancellation.Token);
+        }
+        finally
+        {
+            cancellation.Cancel();
+            try
+            {
+                pollingTask.GetAwaiter().GetResult();
+            }
+            catch (OperationCanceledException)
+            {
+                // Expected during normal shutdown.
+            }
+
+            lock (LogLock)
+            {
+                _logWriter?.Dispose();
+                _logWriter = null;
+            }
+        }
+    }
+
+    private static void WaitForShutdown(string[] args, CancellationToken cancellationToken)
+    {
+        int eventOptionIndex = Array.FindIndex(args, arg =>
+            string.Equals(arg, "--stop-event", StringComparison.OrdinalIgnoreCase));
+
+        if (eventOptionIndex >= 0 && eventOptionIndex + 1 < args.Length)
+        {
+            using EventWaitHandle stopEvent = EventWaitHandle.OpenExisting(args[eventOptionIndex + 1]);
+            WaitHandle.WaitAny([stopEvent, cancellationToken.WaitHandle]);
+            return;
+        }
 
         Console.WriteLine("Press Enter to exit...");
-        Console.ReadLine();
-        
-        // Cleanup
-        _timer?.Stop();
-        _timer?.Dispose();
-        
-        lock (_logLock)
-        {
-            _logWriter?.Flush();
-            _logWriter?.Dispose();
-        }
+        Task inputTask = Task.Run(Console.ReadLine);
+        Task cancellationTask = Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+        Task.WhenAny(inputTask, cancellationTask).GetAwaiter().GetResult();
     }
 
-    private static void WriteLog(string logLine)
+    private static async Task PollAsync(CancellationToken cancellationToken)
     {
+        using var timer = new PeriodicTimer(PollInterval);
+
+        do
+        {
+            try
+            {
+                PollActiveWindow();
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"Window polling failed: {ex.Message}");
+            }
+        }
+        while (await timer.WaitForNextTickAsync(cancellationToken));
+    }
+
+    private static void WriteLog(string windowTitle, string executableName, string status)
+    {
+        string displayName = $"{windowTitle} [{executableName}]";
+        string logLine = string.Join(",",
+            EscapeCsv(DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss")),
+            EscapeCsv(displayName),
+            EscapeCsv(status));
+
         Console.WriteLine(logLine);
-        lock (_logLock)
+        lock (LogLock)
         {
             _logWriter?.WriteLine(logLine);
-            // AutoFlush ensures immediate write, but we can also call Flush explicitly for critical data
-            _logWriter?.Flush();
         }
-        Console.WriteLine(logLine);
     }
 
-    private static void TimerElapsed(object? sender, ElapsedEventArgs e)
+    private static string EscapeCsv(string value)
     {
-        TimeSpan threshold = TimeSpan.FromMinutes(MinutesToInactive);
-        bool isInactive = UserActivityDetector.IsUserInactive(threshold);
+        if (value.IndexOfAny([',', '"', '\r', '\n']) < 0)
+        {
+            return value;
+        }
+
+        return $"\"{value.Replace("\"", "\"\"")}\"";
+    }
+
+    private static void PollActiveWindow()
+    {
+        bool isInactive = UserActivityDetector.IsUserInactive(InactivityThreshold);
 
         if (isInactive != _inactive)
         {
@@ -86,62 +158,83 @@ internal static class Program
 
             if (_inactive)
             {
-                string inactiveWindowName = string.IsNullOrWhiteSpace(_lastWindowTitle) ? "Unknown" : _lastWindowTitle;
-                string inactiveExecutableName = string.IsNullOrWhiteSpace(_lastExecutableName) ? "Unknown" : _lastExecutableName;
-                string logLine = $"{DateTime.Now:yyyy-MM-dd HH:mm:ss},{inactiveWindowName} [{inactiveExecutableName}],Inactive";
-                WriteLog(logLine);
+                WriteLog(
+                    string.IsNullOrWhiteSpace(_lastWindowTitle) ? "Unknown" : _lastWindowTitle,
+                    string.IsNullOrWhiteSpace(_lastExecutableName) ? "unknown" : _lastExecutableName,
+                    "Inactive");
             }
-            else
+            else if (TryGetActiveWindow(out WindowInfo activeWindow))
             {
-                string? activeWindow = GetActiveWindowTitle(out string fileName);
-                activeWindow = activeWindow?.Replace(",", "");
-                if (string.IsNullOrWhiteSpace(activeWindow)) return;
-                _lastWindowTitle = activeWindow;
-                _lastExecutableName = fileName;
-                string logLine = $"{DateTime.Now:yyyy-MM-dd HH:mm:ss},{activeWindow} [{fileName}],Active";
-                WriteLog(logLine);
+                UpdateLastWindow(activeWindow);
+                WriteLog(_lastWindowTitle, _lastExecutableName, "Active");
             }
 
             return;
         }
 
-        if (_inactive)
+        if (_inactive || !TryGetActiveWindow(out WindowInfo currentWindow))
         {
             return;
         }
 
-        string? currentWindow = GetActiveWindowTitle(out string activeFileName);
-        currentWindow = currentWindow?.Replace(",", "");
+        if (currentWindow.ProcessId == _lastProcessId && currentWindow.Title == _lastWindowTitle)
+        {
+            return;
+        }
 
-        if (string.IsNullOrWhiteSpace(currentWindow) || currentWindow == _lastWindowTitle) return;
-        _lastWindowTitle = currentWindow;
-        _lastExecutableName = activeFileName;
-        string activeLogLine = $"{DateTime.Now:yyyy-MM-dd HH:mm:ss},{currentWindow} [{activeFileName}],Active";
-        WriteLog(activeLogLine);
+        UpdateLastWindow(currentWindow);
+        WriteLog(_lastWindowTitle, _lastExecutableName, "Active");
     }
 
-    private static string GetActiveWindowTitle(out string executableName)
+    private static void UpdateLastWindow(WindowInfo window)
     {
-        const int nChars = 256;
-        StringBuilder buff = new(nChars);
-        executableName = "unknown";
+        string executableName = window.ProcessId == _lastProcessId && !string.IsNullOrEmpty(_lastExecutableName)
+            ? _lastExecutableName
+            : GetExecutableName(window.ProcessId);
 
+        _lastWindowTitle = window.Title;
+        _lastProcessId = window.ProcessId;
+        _lastExecutableName = executableName;
+    }
+
+    private static bool TryGetActiveWindow(out WindowInfo window)
+    {
+        window = default;
         IntPtr handle = GetForegroundWindow();
+        if (handle == IntPtr.Zero)
+        {
+            return false;
+        }
 
-        if (GetWindowText(handle, buff, nChars) <= 0) return null!;
+        int titleLength = GetWindowTextLengthW(handle);
+        if (titleLength <= 0)
+        {
+            return false;
+        }
+
+        var buffer = new StringBuilder(titleLength + 1);
+        if (GetWindowTextW(handle, buffer, buffer.Capacity) <= 0)
+        {
+            return false;
+        }
+
         GetWindowThreadProcessId(handle, out uint processId);
+        window = new WindowInfo(buffer.ToString(), processId);
+        return true;
+    }
 
+    private static string GetExecutableName(uint processId)
+    {
         try
         {
-            Process processById = Process.GetProcessById((int)processId);
-            executableName = Path.GetFileName(processById.MainModule?.FileName) ?? "unknown";
+            using Process process = Process.GetProcessById(checked((int)processId));
+            return Path.GetFileName(process.MainModule?.FileName) ?? "unknown";
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is ArgumentException or InvalidOperationException or System.ComponentModel.Win32Exception)
         {
-            executableName = $"error: {ex.Message}";
+            return "unknown";
         }
-
-        return buff.ToString();
-
     }
+
+    private readonly record struct WindowInfo(string Title, uint ProcessId);
 }

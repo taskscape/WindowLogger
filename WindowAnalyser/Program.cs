@@ -1,7 +1,8 @@
-﻿﻿using System.Data;
 using System.Globalization;
+using System.Text;
+using System.Text.Json;
 using ClosedXML.Excel;
-using Newtonsoft.Json;
+using Microsoft.VisualBasic.FileIO;
 
 namespace WindowAnalyser;
 
@@ -55,7 +56,11 @@ internal static class Program
         AppSettings settings;
         try
         {
-            settings = JsonConvert.DeserializeObject<AppSettings>(File.ReadAllText("appsettings.json")) ?? new AppSettings();
+            string settingsPath = Path.Combine(AppContext.BaseDirectory, "appsettings.json");
+            settings = JsonSerializer.Deserialize<AppSettings>(
+                File.ReadAllText(settingsPath),
+                new JsonSerializerOptions { PropertyNameCaseInsensitive = true }) ?? new AppSettings();
+            NormalizeSettings(settings);
         }
         catch (Exception)
         {
@@ -63,29 +68,58 @@ internal static class Program
             settings = new AppSettings();
         }
 
-        // Read and parse CSV.
-        // Assumes CSV rows in the format:
-        // yyyy-MM-dd HH:mm:ss,Window Title,Active/Inactive
-        var allLines = File.ReadAllLines(inputFile).Skip(1).ToList(); // Skip header if exists
         var timeEntries = new List<(DateTime DateTime, string WindowTitle, string Status)>();
-        
-        for (int lineIndex = 0; lineIndex < allLines.Count; lineIndex++)
+
+        using (var parser = new TextFieldParser(inputFile, Encoding.UTF8, detectEncoding: true))
         {
-            string line = allLines[lineIndex];
-            string[] parts = line.Split(',');
-            if (parts.Length < 3)
+            parser.TextFieldType = FieldType.Delimited;
+            parser.SetDelimiters(",");
+            parser.HasFieldsEnclosedInQuotes = true;
+            parser.TrimWhiteSpace = false;
+
+            bool firstRecord = true;
+            while (!parser.EndOfData)
             {
-                Console.WriteLine($"Warning: Skipping line {lineIndex + 2} (invalid format, expected 3 columns): {line}");
-                continue;
+                string[]? parts;
+                try
+                {
+                    parts = parser.ReadFields();
+                }
+                catch (MalformedLineException ex)
+                {
+                    Console.WriteLine($"Warning: Skipping malformed CSV record near line {ex.LineNumber}: {ex.Message}");
+                    continue;
+                }
+
+                if (parts is null || parts.Length == 0)
+                {
+                    continue;
+                }
+
+                if (firstRecord)
+                {
+                    firstRecord = false;
+                    if (parts.Length >= 3 &&
+                        string.Equals(parts[0].TrimStart('\uFEFF'), "Timestamp", StringComparison.OrdinalIgnoreCase))
+                    {
+                        continue;
+                    }
+                }
+
+                if (parts.Length != 3)
+                {
+                    Console.WriteLine($"Warning: Skipping record near line {parser.LineNumber} (expected 3 columns, found {parts.Length}).");
+                    continue;
+                }
+
+                if (!DateTime.TryParseExact(parts[0].Trim(), "yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture, DateTimeStyles.None, out DateTime dateTime))
+                {
+                    Console.WriteLine($"Warning: Skipping record near line {parser.LineNumber} (invalid date format).");
+                    continue;
+                }
+
+                timeEntries.Add((dateTime, parts[1].Trim(), parts[2].Trim()));
             }
-            
-            if (!DateTime.TryParseExact(parts[0].Trim(), "yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture, DateTimeStyles.None, out DateTime dateTime))
-            {
-                Console.WriteLine($"Warning: Skipping line {lineIndex + 2} (invalid date format): {line}");
-                continue;
-            }
-            
-            timeEntries.Add((dateTime, parts[1].Trim(), parts[2].Trim()));
         }
         
         timeEntries = timeEntries.OrderBy(x => x.DateTime).ToList();
@@ -99,27 +133,11 @@ internal static class Program
                 continue;
             }
 
-            if (i >= timeEntries.Count - 1)
-            {
-                entries.Add(new TimeEntry
-                {
-                    DateTime = timeEntries[i].DateTime,
-                    Duration = new TimeSpan(0),
-                    WindowTitle = timeEntries[i].WindowTitle,
-                    Status = timeEntries[i].Status
-                });
-            }
-            else
-            {
-                entries.Add(new TimeEntry
-                {
-                    DateTime = timeEntries[i].DateTime,
-                    Duration = new TimeSpan(Math.Abs(timeEntries[i + 1].DateTime.Ticks - timeEntries[i].DateTime.Ticks)),
-                    WindowTitle = timeEntries[i].WindowTitle,
-                    Status = timeEntries[i].Status
-                });
-            }
-            
+            DateTime end = i < timeEntries.Count - 1
+                ? timeEntries[i + 1].DateTime
+                : timeEntries[i].DateTime;
+
+            AddEntrySegments(entries, timeEntries[i], end);
         }
 
         // Group by Date, Application (extracted from WindowTitle), and Status. (WINDOWS tab)
@@ -135,7 +153,7 @@ internal static class Program
                 Date = g.Key.Date,
                 Application = g.Key.App,
                 Status = g.Key.Status,
-                TimeSpentMinutes = CalculateTimeSpent(g.Select(x => x.Duration).ToList())
+                TimeSpentMinutes = CalculateTimeSpent(g.Select(x => x.Duration))
             })
             .OrderBy(x => x.Date)
             .ThenByDescending(x => x.TimeSpentMinutes);
@@ -164,7 +182,7 @@ internal static class Program
             {
                 Application = g.Key.AppName,
                 Status = g.Key.Status,
-                TimeSpentMinutes = CalculateTimeSpent(g.Select(x => x!.Duration).ToList())
+                TimeSpentMinutes = CalculateTimeSpent(g.Select(x => x!.Duration))
             })
             .OrderByDescending(x => x.TimeSpentMinutes)
             .ToList();
@@ -176,7 +194,7 @@ internal static class Program
             {
                 Category = g.Key.Category,
                 Status = g.Key.Status,
-                TimeSpentMinutes = CalculateTimeSpent(g.Select(x => x.Duration).ToList())
+                TimeSpentMinutes = CalculateTimeSpent(g.Select(x => x.Duration))
             })
             .OrderByDescending(x => x.TimeSpentMinutes)
             .ToList();
@@ -202,7 +220,7 @@ internal static class Program
             {
                 Window = g.Key.WindowTitle,
                 Status = g.Key.Status,
-                TimeSpentMinutes = CalculateTimeSpent(g.Select(x => x!.Duration).ToList())
+                TimeSpentMinutes = CalculateTimeSpent(g.Select(x => x!.Duration))
             })
             .OrderByDescending(x => x.TimeSpentMinutes)
             .ToList();
@@ -222,6 +240,7 @@ internal static class Program
     private static bool IsExcluded(string title, List<ExclusionDefinition> exclusions)
     {
         return exclusions.Any(ex =>
+            ex.Include.Count > 0 &&
             ex.Include.All(phrase =>
                 title.IndexOf(phrase, StringComparison.OrdinalIgnoreCase) >= 0));
     }
@@ -230,7 +249,7 @@ internal static class Program
     {
         foreach (ApplicationDefinition app in apps)
         {
-            bool includes = app.Include.All(phrase =>
+            bool includes = app.Include.Count > 0 && app.Include.All(phrase =>
                 title.IndexOf(phrase, StringComparison.OrdinalIgnoreCase) >= 0);
 
             bool excludes = app.Exclude?.Any(phrase =>
@@ -247,11 +266,11 @@ internal static class Program
         List<string> matched = [];
         foreach (CategoryDefinition category in categories)
         {
-            bool included = category.IncludeApplications?.Any(a =>
-                appName.IndexOf(a, StringComparison.OrdinalIgnoreCase) >= 0) ?? false;
+            bool included = category.IncludeApplications.Any(a =>
+                appName.Equals(a, StringComparison.OrdinalIgnoreCase));
 
-            bool excluded = category.ExcludeApplications?.Any(a =>
-                appName.IndexOf(a, StringComparison.OrdinalIgnoreCase) >= 0) ?? false;
+            bool excluded = category.ExcludeApplications.Any(a =>
+                appName.Equals(a, StringComparison.OrdinalIgnoreCase));
 
             if (included && !excluded)
                 matched.Add(category.Name);
@@ -267,13 +286,75 @@ internal static class Program
 #pragma warning restore S3220 // Method calls should not resolve ambiguously to overloads with "params"
     }
 
-    private static double CalculateTimeSpent(List<TimeSpan> timestamps)
+    private static double CalculateTimeSpent(IEnumerable<TimeSpan> timestamps)
     {
-        if (timestamps.Count < 2)
-            return 0;
-
         double totalMinutes = timestamps.Sum(t => t.TotalMinutes);
         return Math.Round(totalMinutes, 2);
+    }
+
+    private static void AddEntrySegments(
+        List<TimeEntry> entries,
+        (DateTime DateTime, string WindowTitle, string Status) source,
+        DateTime end)
+    {
+        DateTime segmentStart = source.DateTime;
+
+        if (end <= segmentStart)
+        {
+            entries.Add(new TimeEntry
+            {
+                DateTime = segmentStart,
+                Duration = TimeSpan.Zero,
+                WindowTitle = source.WindowTitle,
+                Status = source.Status
+            });
+            return;
+        }
+
+        while (segmentStart.Date < end.Date)
+        {
+            DateTime midnight = segmentStart.Date.AddDays(1);
+            entries.Add(new TimeEntry
+            {
+                DateTime = segmentStart,
+                Duration = midnight - segmentStart,
+                WindowTitle = source.WindowTitle,
+                Status = source.Status
+            });
+            segmentStart = midnight;
+        }
+
+        entries.Add(new TimeEntry
+        {
+            DateTime = segmentStart,
+            Duration = end - segmentStart,
+            WindowTitle = source.WindowTitle,
+            Status = source.Status
+        });
+    }
+
+    private static void NormalizeSettings(AppSettings settings)
+    {
+        settings.Applications ??= [];
+        settings.Exclusions ??= [];
+        settings.Categories ??= [];
+
+        foreach (ApplicationDefinition application in settings.Applications)
+        {
+            application.Include ??= [];
+            application.Exclude ??= [];
+        }
+
+        foreach (ExclusionDefinition exclusion in settings.Exclusions)
+        {
+            exclusion.Include ??= [];
+        }
+
+        foreach (CategoryDefinition category in settings.Categories)
+        {
+            category.IncludeApplications ??= [];
+            category.ExcludeApplications ??= [];
+        }
     }
     private static void WriteWorksheet(XLWorkbook workbook, string sheetName, IEnumerable<object[]> rows, bool DisplayDate = false)
     {

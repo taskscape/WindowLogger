@@ -1,12 +1,10 @@
 using System;
 using System.Collections.Generic;
-using System.ComponentModel;
 using System.Drawing;
 using System.IO;
 using System.Linq;
 using System.Text;
 using System.Text.Json;
-using System.Text.Json.Serialization;
 using System.Windows.Forms;
 
 namespace WindowLoggerConfigGui
@@ -46,13 +44,15 @@ namespace WindowLoggerConfigGui
         private readonly ToolStripStatusLabel _statusLabel;
 
         private AppSettings _settings = new AppSettings();
+        private readonly string? _initialPath;
         private string? _currentPath;
         private bool _isDirty;
 
-        private const string DefaultRelativePath = @"..\..\..\WindowAnalyser\appsettings.json";
+        private const string DefaultRelativePath = @"..\..\..\..\WindowAnalyser\appsettings.json";
 
-        public MainForm()
+        public MainForm(string? initialPath = null)
         {
+            _initialPath = initialPath;
             Text = "Window Logger Configuration";
             MinimumSize = new Size(980, 640);
             StartPosition = FormStartPosition.CenterScreen;
@@ -305,6 +305,12 @@ namespace WindowLoggerConfigGui
 
         private void TryLoadDefaultConfig()
         {
+            if (!string.IsNullOrWhiteSpace(_initialPath) && File.Exists(_initialPath))
+            {
+                LoadConfig(_initialPath);
+                return;
+            }
+
             string baseDir = AppDomain.CurrentDomain.BaseDirectory;
 
             string localPath = Path.Combine(baseDir, "appsettings.json");
@@ -439,6 +445,23 @@ namespace WindowLoggerConfigGui
             settings.Applications = settings.Applications ?? new List<ApplicationDefinition>();
             settings.Exclusions = settings.Exclusions ?? new List<ExclusionDefinition>();
             settings.Categories = settings.Categories ?? new List<CategoryDefinition>();
+
+            foreach (var application in settings.Applications)
+            {
+                application.Include ??= new List<string>();
+                application.Exclude ??= new List<string>();
+            }
+
+            foreach (var exclusion in settings.Exclusions)
+            {
+                exclusion.Include ??= new List<string>();
+            }
+
+            foreach (var category in settings.Categories)
+            {
+                category.IncludeApplications ??= new List<string>();
+                category.ExcludeApplications ??= new List<string>();
+            }
         }
 
         private void RefreshAllLists()

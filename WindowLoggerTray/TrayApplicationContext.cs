@@ -1,5 +1,4 @@
 using System.Diagnostics;
-using System.Reflection;
 
 namespace WindowLoggerTray;
 
@@ -7,11 +6,12 @@ public class TrayApplicationContext : ApplicationContext
 {
     private readonly NotifyIcon _notifyIcon;
     private Process? _loggerProcess;
+    private EventWaitHandle? _loggerStopEvent;
     
     // 1. Executables: Located in their respective project build folders
-    private string LoggerExe => FindComponentPath("WindowLogger", "net10.0", "WindowLogger.exe");
+    private string LoggerExe => FindComponentPath("WindowLogger", "net10.0-windows", "WindowLogger.exe");
     private string AnalyserExe => FindComponentPath("WindowAnalyser", "net10.0", "WindowAnalyser.exe");
-    private string ConfigGuiExe => FindComponentPath("WindowLoggerConfigGui", "net48", "WindowLoggerConfigGui.exe");
+    private string ConfigGuiExe => FindComponentPath("WindowLoggerConfigGui", "net10.0-windows", "WindowLoggerConfigGui.exe");
     
     // 2. Data File (CSV): Located in the WindowLogger directory (producer owns the data)
     private string LogFile => Path.Combine(Path.GetDirectoryName(LoggerExe) ?? string.Empty, "WindowLogger.csv");
@@ -68,7 +68,7 @@ public class TrayApplicationContext : ApplicationContext
         menu.Items.Add(_stopLoggingItem);
         menu.Items.Add(new ToolStripSeparator());
 
-        menu.Items.Add("Generate Report & Open", null, (s, e) => RunAnalysis());
+        menu.Items.Add("Generate Report & Open", null, async (s, e) => await RunAnalysisAsync());
         menu.Items.Add(new ToolStripSeparator());
 
         menu.Items.Add("Edit Configuration (GUI)", null, (s, e) => OpenConfigGui());
@@ -97,6 +97,16 @@ public class TrayApplicationContext : ApplicationContext
 
         try
         {
+            _loggerProcess?.Dispose();
+            _loggerProcess = null;
+            _loggerStopEvent?.Dispose();
+
+            string stopEventName = $"Local\\WindowLogger-{Guid.NewGuid():N}";
+            _loggerStopEvent = new EventWaitHandle(
+                initialState: false,
+                EventResetMode.ManualReset,
+                stopEventName);
+
             var startInfo = new ProcessStartInfo
             {
                 FileName = LoggerExe,
@@ -105,21 +115,21 @@ public class TrayApplicationContext : ApplicationContext
                 WorkingDirectory = Path.GetDirectoryName(LoggerExe)
             };
 
-            // Pass explicit log file path as first argument so the logger can write to the intended folder
-            try
-            {
-                startInfo.Arguments = $"\"{LogFile}\"";
-            }
-            catch
-            {
-                // ignore formatting issues; starting without args is better than failing here
-            }
+            startInfo.ArgumentList.Add(LogFile);
+            startInfo.ArgumentList.Add("--stop-event");
+            startInfo.ArgumentList.Add(stopEventName);
 
             _loggerProcess = Process.Start(startInfo);
+            if (_loggerProcess is null)
+            {
+                throw new InvalidOperationException("The logger process could not be created.");
+            }
             _notifyIcon.ShowBalloonTip(3000, "Window Logger", "Logging started.", ToolTipIcon.Info);
         }
         catch (Exception ex)
         {
+            _loggerStopEvent?.Dispose();
+            _loggerStopEvent = null;
             ShowError($"Failed to start logger: {ex.Message}");
         }
 
@@ -128,24 +138,41 @@ public class TrayApplicationContext : ApplicationContext
 
     private void StopLogger()
     {
-        if (_loggerProcess == null || _loggerProcess.HasExited) return;
+        if (_loggerProcess == null)
+        {
+            return;
+        }
 
         try
         {
-            _loggerProcess.Kill();
-            _loggerProcess.WaitForExit(1000);
-            _loggerProcess = null;
+            if (!_loggerProcess.HasExited)
+            {
+                _loggerStopEvent?.Set();
+                if (!_loggerProcess.WaitForExit(3000))
+                {
+                    _loggerProcess.Kill(entireProcessTree: true);
+                    _loggerProcess.WaitForExit(1000);
+                }
+            }
+
             _notifyIcon.ShowBalloonTip(3000, "Window Logger", "Logging stopped.", ToolTipIcon.Info);
         }
         catch (Exception ex)
         {
             ShowError($"Failed to stop logger: {ex.Message}");
         }
+        finally
+        {
+            _loggerProcess.Dispose();
+            _loggerProcess = null;
+            _loggerStopEvent?.Dispose();
+            _loggerStopEvent = null;
+        }
 
         UpdateMenuState();
     }
 
-    private void RunAnalysis()
+    private async Task RunAnalysisAsync()
     {
         if (!File.Exists(AnalyserExe))
         {
@@ -162,27 +189,34 @@ public class TrayApplicationContext : ApplicationContext
 
         try
         {
+            if (File.Exists(ReportFile))
+            {
+                File.Delete(ReportFile);
+            }
+
             var startInfo = new ProcessStartInfo
             {
                 FileName = AnalyserExe,
-                // Arguments: [Input: Path to Logger's CSV] [Output: Path to Tray's Report]
-                Arguments = $"\"{LogFile}\" \"{ReportFile}\"",
                 UseShellExecute = false,
                 CreateNoWindow = true,
                 // Analyser needs to run in its own folder to find appsettings.json
                 WorkingDirectory = Path.GetDirectoryName(AnalyserExe) 
             };
 
-            var process = Process.Start(startInfo);
-            process?.WaitForExit();
+            startInfo.ArgumentList.Add(LogFile);
+            startInfo.ArgumentList.Add(ReportFile);
 
-            if (File.Exists(ReportFile))
+            using Process process = Process.Start(startInfo)
+                ?? throw new InvalidOperationException("The analyser process could not be created.");
+            await process.WaitForExitAsync();
+
+            if (process.ExitCode == 0 && File.Exists(ReportFile))
             {
-                new Process { StartInfo = new ProcessStartInfo(ReportFile) { UseShellExecute = true } }.Start();
+                Process.Start(new ProcessStartInfo(ReportFile) { UseShellExecute = true });
             }
             else
             {
-                ShowError("Report file was not created. The log file might be empty.");
+                ShowError($"Report generation failed with exit code {process.ExitCode}.");
             }
         }
         catch (Exception ex)
@@ -195,7 +229,9 @@ public class TrayApplicationContext : ApplicationContext
     {
         if (File.Exists(ConfigGuiExe))
         {
-            Process.Start(new ProcessStartInfo(ConfigGuiExe) { UseShellExecute = true });
+            var startInfo = new ProcessStartInfo(ConfigGuiExe) { UseShellExecute = true };
+            startInfo.ArgumentList.Add(ConfigFile);
+            Process.Start(startInfo);
         }
         else
         {
@@ -245,6 +281,10 @@ public class TrayApplicationContext : ApplicationContext
         {
             _loggerProcess = existing[0];
         }
+        foreach (Process process in existing.Skip(1))
+        {
+            process.Dispose();
+        }
         UpdateMenuState();
     }
 
@@ -267,6 +307,7 @@ public class TrayApplicationContext : ApplicationContext
             StopLogger();
         }
         _notifyIcon.Visible = false;
+        _notifyIcon.Dispose();
         Application.Exit();
     }
 }

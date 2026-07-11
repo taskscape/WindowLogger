@@ -31,7 +31,7 @@ dotnet build WindowLogger.sln
 Navigate to the WindowLogger output directory and run:
 
 ```bash
-cd WindowLogger/bin/Debug/net10.0
+cd WindowLogger/bin/Debug/net10.0-windows
 WindowLogger.exe
 ```
 
@@ -44,7 +44,7 @@ dotnet run
 
 **What happens:**
 
-- The logger starts monitoring your active windows every 100ms
+- The logger starts monitoring your active windows every 500ms
 - Console displays each window change
 - Data is saved to `WindowLogger.csv` in the same directory as the executable
 - Press **Enter** to stop logging
@@ -89,7 +89,7 @@ Once **WindowLoggerTray** is running, right-click the tray icon to access the me
 Navigate to the WindowAnalyser output directory and run:
 
 ```bash
-cd WindowAnalyser/bin/Debug/net9.0
+cd WindowAnalyser/bin/Debug/net10.0
 WindowAnalyser.exe WindowLogger.csv output.xlsx
 ```
 
@@ -103,12 +103,12 @@ dotnet run -- <path-to-csv> <output-xlsx-path>
 **Example:**
 
 ```bash
-dotnet run -- ../../WindowLogger/bin/Debug/net9.0/WindowLogger.csv weekly_report.xlsx
+dotnet run -- ../../WindowLogger/bin/Debug/net10.0-windows/WindowLogger.csv weekly_report.xlsx
 ```
 
 ### Alternatively - Use the Controller Application
 
-You can generate the `Report.xslx` directly from the **WindowLoggerTray** by clicking "Generate Report & Open".
+You can generate the `Report.xlsx` directly from the **WindowLoggerTray** by clicking "Generate Report & Open".
 
 ---
 
@@ -125,9 +125,9 @@ You can generate the `Report.xslx` directly from the **WindowLoggerTray** by cli
 - **File Name:** appsettings.json
 - **Location:** Created in the same directory. Defines how windows are grouped into Applications and Categories.
 
-### Report.xslx
+### Report.xlsx
 
-WindowLoggerTray generates **Report.xslx** file when you use the `Generate Report Open` option. It uses data from the **WindowLogger.csv** file.
+WindowLoggerTray generates a **Report.xlsx** file when you use the `Generate Report & Open` option. It uses data from the **WindowLogger.csv** file.
 
 
 
@@ -177,7 +177,7 @@ Timestamp,Window Title [Executable],Status
 The configuration file must be in:
 
 ```test
-WindowAnalyser/bin/Debug/net9.0/appsettings.json
+WindowAnalyser/bin/Debug/net10.0/appsettings.json
 ```
 
 The project is already configured to copy this file to the output directory automatically.
@@ -202,14 +202,14 @@ Time Spent (Hours) | Time Spent (Minutes)
 
 ### Features
 
-- **Real-time Window Tracking**: Monitors the foreground window every 100ms
+- **Real-time Window Tracking**: Monitors the foreground window every 500ms
 - **Executable Detection**: Records both window title and process name
 - **Inactivity Detection**: Automatically detects when user is idle (default: 1 minute)
 - **Continuous Logging**: Appends to CSV file - safe to stop/restart
 
 ### How It Works
 
-1. Polls the foreground window every 100 milliseconds
+1. Polls the foreground window every 500 milliseconds
 2. Detects window changes and logs them with timestamp
 3. Monitors user input (keyboard/mouse) to detect inactivity
 4. When inactive for 1 minute, logs "Inactive" status
@@ -223,10 +223,10 @@ Edit constants in `WindowLogger/Program.cs`:
 private const double MinutesToInactive = 1;  // Inactivity threshold in minutes
 ```
 
-Change timer interval (default: 100ms):
+Change the polling interval (default: 500ms):
 
 ```csharp
-_timer = new Timer(100);  // Polling interval in milliseconds
+private static readonly TimeSpan PollInterval = TimeSpan.FromMilliseconds(500);
 ```
 
 ### Running as a Background Service
@@ -579,7 +579,7 @@ Group applications into higher-level categories for aggregate reporting.
 ## Requirements
 
 - **Operating System**: Windows (uses Win32 APIs for window tracking)
-- **.NET Runtime**: .NET 9.0 or higher
+- **.NET Runtime**: .NET 10.0 or higher
 - **Excel Viewer**: Microsoft Excel or compatible spreadsheet application
 
 ### Dependencies
@@ -591,7 +591,7 @@ Group applications into higher-level categories for aggregate reporting.
 **WindowAnalyser:**
 
 - ClosedXML (0.105.0-rc) - for Excel generation
-- Newtonsoft.Json (13.0.3) - for configuration parsing
+- System.Text.Json (included with .NET) - for configuration parsing
 
 ---
 
