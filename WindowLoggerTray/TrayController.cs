@@ -10,13 +10,16 @@ public sealed class TrayController : IDisposable
     private readonly TrayIcon _trayIcon;
     private readonly MenuItem _startLoggingItem;
     private readonly MenuItem _stopLoggingItem;
+    private readonly MenuItem _generateReportItem;
     private Process? _loggerProcess;
     private EventWaitHandle? _loggerStopEvent;
+    private bool _ownsLoggerProcess;
+    private bool _analysisInProgress;
     private bool _disposed;
 
-    private string LoggerExe => FindComponentPath("WindowLogger", "net10.0-windows", "WindowLogger.exe");
-    private string AnalyserExe => FindComponentPath("WindowAnalyser", "net10.0", "WindowAnalyser.exe");
-    private string ConfigGuiExe => FindComponentPath("WindowLoggerConfigGui", "net10.0-windows", "WindowLoggerConfigGui.exe");
+    private string LoggerExe => FindComponentPath("WindowLogger", "WindowLogger.exe");
+    private string AnalyserExe => FindComponentPath("WindowAnalyser", "WindowAnalyser.exe");
+    private string ConfigGuiExe => FindComponentPath("WindowLoggerConfigGui", "WindowLoggerConfigGui.exe");
     private string LogFile => Path.Combine(Path.GetDirectoryName(LoggerExe) ?? string.Empty, "WindowLogger.csv");
     private string ConfigFile => Path.Combine(Path.GetDirectoryName(AnalyserExe) ?? string.Empty, "appsettings.json");
     private string ReportFile => Path.Combine(AppContext.BaseDirectory, "Report.xlsx");
@@ -24,7 +27,8 @@ public sealed class TrayController : IDisposable
     public TrayController()
     {
         _startLoggingItem = CreateMenuItem("Start Logging", (_, _) => StartLogger());
-        _stopLoggingItem = CreateMenuItem("Stop Logging", (_, _) => StopLogger());
+        _stopLoggingItem = CreateMenuItem("Stop Logging", async (_, _) => await StopLoggerAsync());
+        _generateReportItem = CreateMenuItem("Generate Report & Open", async (_, _) => await RunAnalysisAsync());
 
         ContextMenu contextMenu = CreateContextMenu();
         contextMenu.Opened += (_, _) => UpdateMenuState();
@@ -38,11 +42,11 @@ public sealed class TrayController : IDisposable
         menu.Items.Add(_startLoggingItem);
         menu.Items.Add(_stopLoggingItem);
         menu.Items.Add(new Separator());
-        menu.Items.Add(CreateMenuItem("Generate Report & Open", async (_, _) => await RunAnalysisAsync()));
+        menu.Items.Add(_generateReportItem);
         menu.Items.Add(new Separator());
         menu.Items.Add(CreateMenuItem("Edit Configuration (GUI)", (_, _) => OpenConfigGui()));
         menu.Items.Add(CreateMenuItem("Edit Configuration (JSON)", (_, _) => OpenConfigJson()));
-        menu.Items.Add(CreateMenuItem("Clear Collected Data", (_, _) => ClearData()));
+        menu.Items.Add(CreateMenuItem("Clear Collected Data", async (_, _) => await ClearDataAsync()));
         menu.Items.Add(new Separator());
         menu.Items.Add(CreateMenuItem("Exit", (_, _) => Wpf.Application.Current.Shutdown()));
         return menu;
@@ -55,21 +59,33 @@ public sealed class TrayController : IDisposable
         return item;
     }
 
-    private static string FindComponentPath(string projectName, string framework, string fileName)
+    private static string FindComponentPath(string projectName, string fileName)
     {
         string baseDirectory = AppContext.BaseDirectory;
+        string localPath = Path.Combine(baseDirectory, fileName);
+        if (File.Exists(localPath))
+        {
+            return localPath;
+        }
+
         string configuration = baseDirectory.Contains("Release", StringComparison.OrdinalIgnoreCase)
             ? "Release"
             : "Debug";
         string solutionDirectory = Path.GetFullPath(Path.Combine(baseDirectory, "..", "..", "..", ".."));
-        string projectPath = Path.Combine(solutionDirectory, projectName, "bin", configuration, framework, fileName);
-        if (File.Exists(projectPath))
+        string buildDirectory = Path.Combine(solutionDirectory, projectName, "bin", configuration);
+        if (Directory.Exists(buildDirectory))
         {
-            return projectPath;
+            string? projectPath = Directory
+                .EnumerateFiles(buildDirectory, fileName, SearchOption.AllDirectories)
+                .OrderByDescending(File.GetLastWriteTimeUtc)
+                .FirstOrDefault();
+            if (projectPath is not null)
+            {
+                return projectPath;
+            }
         }
 
-        string localPath = Path.Combine(baseDirectory, fileName);
-        return File.Exists(localPath) ? localPath : projectPath;
+        return localPath;
     }
 
     private void StartLogger()
@@ -105,6 +121,7 @@ public sealed class TrayController : IDisposable
 
             _loggerProcess = Process.Start(startInfo)
                 ?? throw new InvalidOperationException("The logger process could not be created.");
+            _ownsLoggerProcess = true;
             _trayIcon.ShowBalloon("Window Logger", "Logging started.");
         }
         catch (Exception ex)
@@ -116,7 +133,7 @@ public sealed class TrayController : IDisposable
         UpdateMenuState();
     }
 
-    private void StopLogger(bool showNotification = true)
+    private async Task StopLoggerAsync(bool showNotification = true)
     {
         if (_loggerProcess is null)
         {
@@ -128,10 +145,10 @@ public sealed class TrayController : IDisposable
             if (!_loggerProcess.HasExited)
             {
                 _loggerStopEvent?.Set();
-                if (!_loggerProcess.WaitForExit(3000))
+                if (!await WaitForExitAsync(_loggerProcess, TimeSpan.FromSeconds(3)))
                 {
                     _loggerProcess.Kill(entireProcessTree: true);
-                    _loggerProcess.WaitForExit(1000);
+                    await WaitForExitAsync(_loggerProcess, TimeSpan.FromSeconds(1));
                 }
             }
 
@@ -157,20 +174,28 @@ public sealed class TrayController : IDisposable
 
     private async Task RunAnalysisAsync()
     {
-        if (!File.Exists(AnalyserExe))
+        if (_analysisInProgress)
         {
-            ShowError($"{AnalyserExe} not found.");
             return;
         }
 
-        if (!File.Exists(LogFile))
-        {
-            ShowError($"No log file found at:\n{LogFile}\n\nPlease run the logger first to generate data.");
-            return;
-        }
+        _analysisInProgress = true;
+        UpdateMenuState();
 
         try
         {
+            if (!File.Exists(AnalyserExe))
+            {
+                ShowError($"{AnalyserExe} not found.");
+                return;
+            }
+
+            if (!File.Exists(LogFile))
+            {
+                ShowError($"No log file found at:\n{LogFile}\n\nPlease run the logger first to generate data.");
+                return;
+            }
+
             if (File.Exists(ReportFile))
             {
                 File.Delete(ReportFile);
@@ -181,6 +206,7 @@ public sealed class TrayController : IDisposable
                 FileName = AnalyserExe,
                 UseShellExecute = false,
                 CreateNoWindow = true,
+                RedirectStandardError = true,
                 WorkingDirectory = Path.GetDirectoryName(AnalyserExe)
             };
             startInfo.ArgumentList.Add(LogFile);
@@ -188,11 +214,14 @@ public sealed class TrayController : IDisposable
 
             using Process process = Process.Start(startInfo)
                 ?? throw new InvalidOperationException("The analyser process could not be created.");
+            Task<string> errorOutputTask = process.StandardError.ReadToEndAsync();
             await process.WaitForExitAsync();
+            string errorOutput = (await errorOutputTask).Trim();
 
             if (process.ExitCode != 0 || !File.Exists(ReportFile))
             {
-                ShowError($"Report generation failed with exit code {process.ExitCode}.");
+                string details = string.IsNullOrWhiteSpace(errorOutput) ? string.Empty : $"\n\n{errorOutput}";
+                ShowError($"Report generation failed with exit code {process.ExitCode}.{details}");
                 return;
             }
 
@@ -201,6 +230,11 @@ public sealed class TrayController : IDisposable
         catch (Exception ex)
         {
             ShowError($"Analysis failed: {ex.Message}");
+        }
+        finally
+        {
+            _analysisInProgress = false;
+            UpdateMenuState();
         }
     }
 
@@ -242,7 +276,7 @@ public sealed class TrayController : IDisposable
         }
     }
 
-    private void ClearData()
+    private async Task ClearDataAsync()
     {
         Wpf.MessageBoxResult result = Wpf.MessageBox.Show(
             $"Are you sure you want to delete the log file?\nTarget: {LogFile}",
@@ -259,7 +293,7 @@ public sealed class TrayController : IDisposable
             bool wasRunning = IsLoggerRunning();
             if (wasRunning)
             {
-                StopLogger(showNotification: false);
+                await StopLoggerAsync(showNotification: false);
             }
 
             if (File.Exists(LogFile))
@@ -286,6 +320,7 @@ public sealed class TrayController : IDisposable
         if (existing.Length > 0)
         {
             _loggerProcess = existing[0];
+            _ownsLoggerProcess = false;
         }
 
         foreach (Process process in existing.Skip(1))
@@ -318,6 +353,7 @@ public sealed class TrayController : IDisposable
         bool isRunning = IsLoggerRunning();
         _startLoggingItem.IsEnabled = !isRunning;
         _stopLoggingItem.IsEnabled = isRunning;
+        _generateReportItem.IsEnabled = !_analysisInProgress;
     }
 
     private static void ShowError(string message) =>
@@ -329,6 +365,7 @@ public sealed class TrayController : IDisposable
         _loggerProcess = null;
         _loggerStopEvent?.Dispose();
         _loggerStopEvent = null;
+        _ownsLoggerProcess = false;
     }
 
     public void Dispose()
@@ -339,15 +376,26 @@ public sealed class TrayController : IDisposable
         }
 
         _disposed = true;
-        if (IsLoggerRunning())
+        if (_ownsLoggerProcess && IsLoggerRunning())
         {
-            StopLogger(showNotification: false);
+            _loggerStopEvent?.Set();
         }
-        else
-        {
-            DisposeLoggerHandles();
-        }
+        DisposeLoggerHandles();
 
         _trayIcon.Dispose();
+    }
+
+    private static async Task<bool> WaitForExitAsync(Process process, TimeSpan timeout)
+    {
+        using var cancellation = new CancellationTokenSource(timeout);
+        try
+        {
+            await process.WaitForExitAsync(cancellation.Token);
+            return true;
+        }
+        catch (OperationCanceledException)
+        {
+            return false;
+        }
     }
 }

@@ -53,6 +53,7 @@ internal static class Program
         {
             _logWriter.WriteLine("Timestamp,WindowTitle,Status");
         }
+        WriteSessionMarker("SessionStart");
 
         using var cancellation = new CancellationTokenSource();
         Console.CancelKeyPress += (_, e) =>
@@ -79,6 +80,7 @@ internal static class Program
                 // Expected during normal shutdown.
             }
 
+            WriteSessionMarker("SessionEnd");
             lock (LogLock)
             {
                 _logWriter?.Dispose();
@@ -126,9 +128,16 @@ internal static class Program
     private static void WriteLog(string windowTitle, string executableName, string status)
     {
         string displayName = $"{windowTitle} [{executableName}]";
+        WriteCsvRecord(displayName, status);
+    }
+
+    private static void WriteSessionMarker(string status) => WriteCsvRecord(string.Empty, status);
+
+    private static void WriteCsvRecord(string windowTitle, string status)
+    {
         string logLine = string.Join(",",
             EscapeCsv(DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss")),
-            EscapeCsv(displayName),
+            EscapeCsv(windowTitle),
             EscapeCsv(status));
 
         Console.WriteLine(logLine);

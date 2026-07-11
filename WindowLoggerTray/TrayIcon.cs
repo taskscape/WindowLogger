@@ -19,6 +19,7 @@ internal sealed class TrayIcon : IDisposable
     private const int CallbackMessage = WindowMessageApp + 1;
     private const int RightButtonUp = 0x0205;
     private const int ApplicationIcon = 32512;
+    private static readonly int TaskbarCreatedMessage = unchecked((int)RegisterWindowMessage("TaskbarCreated"));
 
     private readonly HwndSource _messageSource;
     private readonly ContextMenu _contextMenu;
@@ -67,6 +68,13 @@ internal sealed class TrayIcon : IDisposable
 
     private IntPtr WindowProcedure(IntPtr windowHandle, int message, IntPtr wParam, IntPtr lParam, ref bool handled)
     {
+        if (message == TaskbarCreatedMessage)
+        {
+            ShellNotifyIcon(NotifyIconAdd, ref _iconData);
+            handled = true;
+            return IntPtr.Zero;
+        }
+
         if (message == CallbackMessage && lParam.ToInt32() == RightButtonUp)
         {
             SetForegroundWindow(windowHandle);
@@ -114,6 +122,9 @@ internal sealed class TrayIcon : IDisposable
     [DllImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool SetForegroundWindow(IntPtr windowHandle);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    private static extern uint RegisterWindowMessage(string messageName);
 
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
     private struct NotifyIconData

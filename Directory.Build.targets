@@ -1,0 +1,13 @@
+<Project>
+  <Target Name="GetWindowLoggerDeploymentFiles"
+          DependsOnTargets="Build"
+          Returns="@(WindowLoggerDeploymentFile)">
+    <ItemGroup>
+      <WindowLoggerDeploymentFile Include="$(TargetPath)" Condition="Exists('$(TargetPath)')" />
+      <WindowLoggerDeploymentFile Include="$(TargetDir)$(TargetName).exe" Condition="Exists('$(TargetDir)$(TargetName).exe')" />
+      <WindowLoggerDeploymentFile Include="$(ProjectDepsFilePath)" Condition="Exists('$(ProjectDepsFilePath)')" />
+      <WindowLoggerDeploymentFile Include="$(ProjectRuntimeConfigFilePath)" Condition="Exists('$(ProjectRuntimeConfigFilePath)')" />
+      <WindowLoggerDeploymentFile Include="$(TargetDir)appsettings.json" Condition="Exists('$(TargetDir)appsettings.json')" />
+    </ItemGroup>
+  </Target>
+</Project>

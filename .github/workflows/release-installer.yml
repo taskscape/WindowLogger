@@ -1,0 +1,106 @@
+name: Publish installer release
+
+on:
+  push:
+    tags:
+      - 'v[0-9]*.[0-9]*.[0-9]*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build and publish Inno Setup installer
+    runs-on: windows-latest
+
+    steps:
+      - name: Check out tagged source
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Validate version tag and branch ancestry
+        id: version
+        shell: pwsh
+        run: |
+          if ($env:GITHUB_REF_NAME -notmatch '^v(?<version>\d+\.\d+\.\d+)$') {
+            throw "Release tags must use vMAJOR.MINOR.PATCH format (for example, v1.2.3)."
+          }
+
+          $version = $Matches.version
+          $tagCommit = (git rev-parse "$env:GITHUB_REF_NAME^{commit}").Trim()
+          if ($LASTEXITCODE -ne 0) {
+            throw "Could not resolve tag $env:GITHUB_REF_NAME to a commit."
+          }
+
+          $eligibleBranches = @()
+          foreach ($branch in @('main', 'master')) {
+            git ls-remote --exit-code --heads origin $branch *> $null
+            if ($LASTEXITCODE -ne 0) {
+              continue
+            }
+
+            git fetch origin "${branch}:refs/remotes/origin/${branch}" --no-tags
+            if ($LASTEXITCODE -ne 0) {
+              throw "Could not fetch origin/$branch."
+            }
+
+            git merge-base --is-ancestor $tagCommit "origin/$branch"
+            if ($LASTEXITCODE -eq 0) {
+              $eligibleBranches += $branch
+            }
+          }
+
+          if ($eligibleBranches.Count -eq 0) {
+            throw "Tag $env:GITHUB_REF_NAME is not reachable from origin/main or origin/master."
+          }
+
+          "version=$version" >> $env:GITHUB_OUTPUT
+          "commit=$tagCommit" >> $env:GITHUB_OUTPUT
+          "branch=$($eligibleBranches[0])" >> $env:GITHUB_OUTPUT
+
+      - name: Set up .NET 10
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Install Inno Setup
+        shell: pwsh
+        run: choco install innosetup --no-progress --yes
+
+      - name: Run regression tests
+        shell: pwsh
+        run: dotnet test WindowLogger.sln --configuration Release
+
+      - name: Build installer
+        shell: pwsh
+        run: >-
+          ./Installer/Build-Installer.ps1
+          -Configuration Release
+          -Runtime win-x64
+          -Version '${{ steps.version.outputs.version }}'
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: WindowLogger-Setup-${{ steps.version.outputs.version }}
+          path: Installer/Output/WindowLogger-Setup-${{ steps.version.outputs.version }}.exe
+          if-no-files-found: error
+
+      - name: Create GitHub release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.version.outputs.version }}
+          TAG_COMMIT: ${{ steps.version.outputs.commit }}
+        run: |
+          $installer = "Installer/Output/WindowLogger-Setup-$env:VERSION.exe"
+          if (-not (Test-Path -LiteralPath $installer)) {
+            throw "Expected installer was not found: $installer"
+          }
+
+          gh release create $env:GITHUB_REF_NAME $installer `
+            --verify-tag `
+            --target $env:TAG_COMMIT `
+            --title "WindowLogger $env:VERSION" `
+            --generate-notes

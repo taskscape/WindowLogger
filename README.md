@@ -18,12 +18,30 @@ The system runs discretely in the system tray and consists of four components:
 
 ## Quick Start
 
+### Install a release
+
+Download `WindowLogger-Setup-<version>.exe` from the project’s GitHub Releases page. The installer deploys the self-contained applications to `%LOCALAPPDATA%\Programs\WindowLogger`, can register the tray controller to start when the current user signs in, and offers to launch it when installation completes.
+
+Installer maintainers can build the package locally with:
+
+```powershell
+.\Installer\Build-Installer.ps1 -Version 1.2.3
+```
+
+See [`Installer/README.md`](Installer/README.md) for prerequisites and release-tag instructions.
+
 ### Step 1: Build 
 
 Build both applications using Visual Studio or the .NET CLI:
 
 ```bash
 dotnet build WindowLogger.sln
+```
+
+Run the regression test suite with:
+
+```bash
+dotnet test WindowLogger.sln --configuration Release
 ```
 
 ### Step 2: Run the Logger

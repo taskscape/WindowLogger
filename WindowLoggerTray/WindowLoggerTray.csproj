@@ -9,25 +9,29 @@
   </PropertyGroup>
 
   <ItemGroup>
-  </ItemGroup>
-
-  <ItemGroup>
     <ProjectReference Include="..\WindowLogger\WindowLogger.csproj" />
     <ProjectReference Include="..\WindowAnalyser\WindowAnalyser.csproj" />
     <ProjectReference Include="..\WindowLoggerConfigGui\WindowLoggerConfigGui.csproj" />
   </ItemGroup>
 
-  <Target Name="PostBuild" AfterTargets="PostBuildEvent">
+  <ItemGroup>
+    <BundledComponentProject Include="..\WindowLogger\WindowLogger.csproj" />
+    <BundledComponentProject Include="..\WindowAnalyser\WindowAnalyser.csproj" />
+    <BundledComponentProject Include="..\WindowLoggerConfigGui\WindowLoggerConfigGui.csproj" />
+  </ItemGroup>
 
-    <Exec Command="copy /Y &quot;$(ProjectDir)..\WindowLogger\bin\$(Configuration)\net10.0-windows\WindowLogger.exe&quot; &quot;$(TargetDir)&quot;" />
-    <Exec Command="copy /Y &quot;$(ProjectDir)..\WindowLogger\bin\$(Configuration)\net10.0-windows\WindowLogger.runtimeconfig.json&quot; &quot;$(TargetDir)&quot;" />
-
-    <Exec Command="copy /Y &quot;$(ProjectDir)..\WindowAnalyser\bin\$(Configuration)\net10.0\WindowAnalyser.exe&quot; &quot;$(TargetDir)&quot;" />
-    <Exec Command="copy /Y &quot;$(ProjectDir)..\WindowAnalyser\bin\$(Configuration)\net10.0\WindowAnalyser.runtimeconfig.json&quot; &quot;$(TargetDir)&quot;" />
-    <Exec Command="copy /Y &quot;$(ProjectDir)..\WindowAnalyser\appsettings.json&quot; &quot;$(TargetDir)&quot;" />
-
-    <Exec Command="copy /Y &quot;$(ProjectDir)..\WindowLoggerConfigGui\bin\$(Configuration)\net10.0-windows\WindowLoggerConfigGui.exe&quot; &quot;$(TargetDir)&quot;" />
-    <Exec Command="copy /Y &quot;$(ProjectDir)..\WindowLoggerConfigGui\bin\$(Configuration)\net10.0-windows\WindowLoggerConfigGui.runtimeconfig.json&quot; &quot;$(TargetDir)&quot;" />
+  <Target Name="CopyBundledComponents"
+          AfterTargets="Build"
+          Condition="'$(RuntimeIdentifier)' == ''">
+    <MSBuild Projects="@(BundledComponentProject)"
+             Targets="GetWindowLoggerDeploymentFiles"
+             Properties="Configuration=$(Configuration);Platform=$(Platform)"
+             BuildInParallel="true">
+      <Output TaskParameter="TargetOutputs" ItemName="BundledComponentFile" />
+    </MSBuild>
+    <Copy SourceFiles="@(BundledComponentFile)"
+          DestinationFolder="$(TargetDir)"
+          SkipUnchangedFiles="true" />
   </Target>
 
 </Project>

@@ -7,3 +7,6 @@ _ReSharper.Caches
 *.suo
 *.log
 *.csv
+Installer/Output/
+Installer/Publish/
+Installer/Staging/
