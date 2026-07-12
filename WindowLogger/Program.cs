@@ -1,12 +1,13 @@
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text;
+using WindowLogger.Shared.Activity;
 
 namespace WindowLogger;
 
 internal static class Program
 {
-    private const string LogFileName = "WindowLogger.csv";
+    private const string DatabaseFileName = "WindowLogger.db";
     private static readonly TimeSpan PollInterval = TimeSpan.FromMilliseconds(500);
     private static readonly TimeSpan InactivityThreshold = TimeSpan.FromMinutes(1);
 
@@ -14,7 +15,8 @@ internal static class Program
     private static string _lastExecutableName = string.Empty;
     private static uint _lastProcessId;
     private static bool _inactive;
-    private static StreamWriter? _logWriter;
+    private static bool _sessionOpen;
+    private static ActivityDatabase? _database;
     private static readonly object LogLock = new();
 
     [DllImport("user32.dll")]
@@ -35,7 +37,7 @@ internal static class Program
 
         string logPath = args.Length > 0 && !args[0].StartsWith("--", StringComparison.Ordinal)
             ? args[0]
-            : Path.Combine(AppContext.BaseDirectory, LogFileName);
+            : Path.Combine(AppContext.BaseDirectory, DatabaseFileName);
 
         string? logDirectory = Path.GetDirectoryName(Path.GetFullPath(logPath));
         if (!string.IsNullOrEmpty(logDirectory))
@@ -43,17 +45,13 @@ internal static class Program
             Directory.CreateDirectory(logDirectory);
         }
 
-        bool writeHeader = !File.Exists(logPath) || new FileInfo(logPath).Length == 0;
-        _logWriter = new StreamWriter(logPath, append: true, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false))
+        _database = new ActivityDatabase(logPath);
+        MigrateLegacyCsv(logPath);
+        using EventWaitHandle? pauseEvent = OpenPauseEvent(args);
+        if (pauseEvent?.WaitOne(0) != true)
         {
-            AutoFlush = true
-        };
-
-        if (writeHeader)
-        {
-            _logWriter.WriteLine("Timestamp,WindowTitle,Status");
+            StartSession();
         }
-        WriteSessionMarker("SessionStart");
 
         using var cancellation = new CancellationTokenSource();
         Console.CancelKeyPress += (_, e) =>
@@ -62,7 +60,7 @@ internal static class Program
             cancellation.Cancel();
         };
 
-        Task pollingTask = PollAsync(cancellation.Token);
+        Task pollingTask = PollAsync(pauseEvent, cancellation.Token);
 
         try
         {
@@ -80,13 +78,23 @@ internal static class Program
                 // Expected during normal shutdown.
             }
 
-            WriteSessionMarker("SessionEnd");
+            EndSession();
             lock (LogLock)
             {
-                _logWriter?.Dispose();
-                _logWriter = null;
+                _database?.Dispose();
+                _database = null;
             }
         }
+    }
+
+    private static EventWaitHandle? OpenPauseEvent(string[] args)
+    {
+        int eventOptionIndex = Array.FindIndex(args, arg =>
+            string.Equals(arg, "--pause-event", StringComparison.OrdinalIgnoreCase));
+
+        return eventOptionIndex >= 0 && eventOptionIndex + 1 < args.Length
+            ? EventWaitHandle.OpenExisting(args[eventOptionIndex + 1])
+            : null;
     }
 
     private static void WaitForShutdown(string[] args, CancellationToken cancellationToken)
@@ -107,15 +115,34 @@ internal static class Program
         Task.WhenAny(inputTask, cancellationTask).GetAwaiter().GetResult();
     }
 
-    private static async Task PollAsync(CancellationToken cancellationToken)
+    private static async Task PollAsync(EventWaitHandle? pauseEvent, CancellationToken cancellationToken)
     {
         using var timer = new PeriodicTimer(PollInterval);
+        bool wasPaused = pauseEvent?.WaitOne(0) == true;
 
         do
         {
             try
             {
-                PollActiveWindow();
+                bool isPaused = pauseEvent?.WaitOne(0) == true;
+                if (isPaused)
+                {
+                    if (!wasPaused)
+                    {
+                        EndSession();
+                    }
+                }
+                else if (wasPaused)
+                {
+                    StartSession();
+                    CaptureCurrentWindowSnapshot();
+                }
+                else
+                {
+                    PollActiveWindow();
+                }
+
+                wasPaused = isPaused;
             }
             catch (Exception ex)
             {
@@ -128,33 +155,67 @@ internal static class Program
     private static void WriteLog(string windowTitle, string executableName, string status)
     {
         string displayName = $"{windowTitle} [{executableName}]";
-        WriteCsvRecord(displayName, status);
+        WriteRecord(displayName, status);
     }
 
-    private static void WriteSessionMarker(string status) => WriteCsvRecord(string.Empty, status);
+    private static void WriteSessionMarker(string status) => WriteRecord(string.Empty, status);
 
-    private static void WriteCsvRecord(string windowTitle, string status)
+    private static void StartSession()
     {
-        string logLine = string.Join(",",
-            EscapeCsv(DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss")),
-            EscapeCsv(windowTitle),
-            EscapeCsv(status));
+        if (_sessionOpen)
+        {
+            return;
+        }
 
-        Console.WriteLine(logLine);
+        WriteSessionMarker("SessionStart");
+        _sessionOpen = true;
+    }
+
+    private static void EndSession()
+    {
+        if (!_sessionOpen)
+        {
+            return;
+        }
+
+        WriteSessionMarker("SessionEnd");
+        _sessionOpen = false;
+    }
+
+    private static void WriteRecord(string windowTitle, string status)
+    {
+        ActivityRecord record = ActivityRecord.Create(DateTime.Now, windowTitle, status);
+        Console.WriteLine($"{record.Timestamp:yyyy-MM-dd HH:mm:ss},{record.WindowTitle},{record.Status}");
         lock (LogLock)
         {
-            _logWriter?.WriteLine(logLine);
+            _database?.Append(record);
         }
     }
 
-    private static string EscapeCsv(string value)
+    private static void MigrateLegacyCsv(string databasePath)
     {
-        if (value.IndexOfAny([',', '"', '\r', '\n']) < 0)
+        if (_database is null || _database.Count != 0)
         {
-            return value;
+            return;
         }
 
-        return $"\"{value.Replace("\"", "\"\"")}\"";
+        string legacyCsvPath = Path.ChangeExtension(databasePath, ".csv");
+        if (!File.Exists(legacyCsvPath))
+        {
+            return;
+        }
+
+        int imported = _database.Import(ActivityCsv.Read(legacyCsvPath, Console.Error.WriteLine));
+        if (imported == 0)
+        {
+            return;
+        }
+
+        string archivePath = Path.Combine(
+            Path.GetDirectoryName(legacyCsvPath) ?? string.Empty,
+            $"{Path.GetFileNameWithoutExtension(legacyCsvPath)}.migrated-{DateTime.Now:yyyyMMdd-HHmmss}.csv");
+        File.Move(legacyCsvPath, archivePath);
+        Console.WriteLine($"Imported {imported} legacy CSV records and archived the source as {archivePath}.");
     }
 
     private static void PollActiveWindow()
@@ -193,6 +254,21 @@ internal static class Program
 
         UpdateLastWindow(currentWindow);
         WriteLog(_lastWindowTitle, _lastExecutableName, "Active");
+    }
+
+    private static void CaptureCurrentWindowSnapshot()
+    {
+        _inactive = UserActivityDetector.IsUserInactive(InactivityThreshold);
+        if (!TryGetActiveWindow(out WindowInfo currentWindow))
+        {
+            _lastWindowTitle = string.Empty;
+            _lastExecutableName = string.Empty;
+            _lastProcessId = 0;
+            return;
+        }
+
+        UpdateLastWindow(currentWindow);
+        WriteLog(_lastWindowTitle, _lastExecutableName, _inactive ? "Inactive" : "Active");
     }
 
     private static void UpdateLastWindow(WindowInfo window)

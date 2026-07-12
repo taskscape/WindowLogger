@@ -9,26 +9,36 @@ public sealed class TrayController : IDisposable
 {
     private readonly TrayIcon _trayIcon;
     private readonly MenuItem _startLoggingItem;
+    private readonly MenuItem _pauseLoggingItem;
+    private readonly MenuItem _resumeLoggingItem;
     private readonly MenuItem _stopLoggingItem;
     private readonly MenuItem _generateReportItem;
+    private readonly MenuItem _exportDataItem;
+    private readonly MenuItem _importDataItem;
     private Process? _loggerProcess;
     private EventWaitHandle? _loggerStopEvent;
+    private EventWaitHandle? _loggerPauseEvent;
     private bool _ownsLoggerProcess;
+    private bool _isLoggerPaused;
     private bool _analysisInProgress;
     private bool _disposed;
 
     private string LoggerExe => FindComponentPath("WindowLogger", "WindowLogger.exe");
     private string AnalyserExe => FindComponentPath("WindowAnalyser", "WindowAnalyser.exe");
     private string ConfigGuiExe => FindComponentPath("WindowLoggerConfigGui", "WindowLoggerConfigGui.exe");
-    private string LogFile => Path.Combine(Path.GetDirectoryName(LoggerExe) ?? string.Empty, "WindowLogger.csv");
+    private string DatabaseFile => Path.Combine(Path.GetDirectoryName(LoggerExe) ?? string.Empty, "WindowLogger.db");
     private string ConfigFile => Path.Combine(Path.GetDirectoryName(AnalyserExe) ?? string.Empty, "appsettings.json");
     private string ReportFile => Path.Combine(AppContext.BaseDirectory, "Report.xlsx");
 
     public TrayController()
     {
         _startLoggingItem = CreateMenuItem("Start Logging", (_, _) => StartLogger());
+        _pauseLoggingItem = CreateMenuItem("Pause Logging", (_, _) => PauseLogger());
+        _resumeLoggingItem = CreateMenuItem("Resume Logging", (_, _) => ResumeLogger());
         _stopLoggingItem = CreateMenuItem("Stop Logging", async (_, _) => await StopLoggerAsync());
         _generateReportItem = CreateMenuItem("Generate Report & Open", async (_, _) => await RunAnalysisAsync());
+        _exportDataItem = CreateMenuItem("Export Activity to CSV...", async (_, _) => await ExportDataAsync());
+        _importDataItem = CreateMenuItem("Import Activity from CSV...", async (_, _) => await ImportDataAsync());
 
         ContextMenu contextMenu = CreateContextMenu();
         contextMenu.Opened += (_, _) => UpdateMenuState();
@@ -40,9 +50,13 @@ public sealed class TrayController : IDisposable
     {
         var menu = new ContextMenu();
         menu.Items.Add(_startLoggingItem);
+        menu.Items.Add(_pauseLoggingItem);
+        menu.Items.Add(_resumeLoggingItem);
         menu.Items.Add(_stopLoggingItem);
         menu.Items.Add(new Separator());
         menu.Items.Add(_generateReportItem);
+        menu.Items.Add(_exportDataItem);
+        menu.Items.Add(_importDataItem);
         menu.Items.Add(new Separator());
         menu.Items.Add(CreateMenuItem("Edit Configuration (GUI)", (_, _) => OpenConfigGui()));
         menu.Items.Add(CreateMenuItem("Edit Configuration (JSON)", (_, _) => OpenConfigJson()));
@@ -88,7 +102,7 @@ public sealed class TrayController : IDisposable
         return localPath;
     }
 
-    private void StartLogger()
+    private void StartLogger(bool startPaused = false)
     {
         if (IsLoggerRunning())
         {
@@ -106,7 +120,9 @@ public sealed class TrayController : IDisposable
             DisposeLoggerHandles();
 
             string stopEventName = $"Local\\WindowLogger-{Guid.NewGuid():N}";
+            string pauseEventName = $"Local\\WindowLogger-Pause-{Guid.NewGuid():N}";
             _loggerStopEvent = new EventWaitHandle(false, EventResetMode.ManualReset, stopEventName);
+            _loggerPauseEvent = new EventWaitHandle(startPaused, EventResetMode.ManualReset, pauseEventName);
 
             var startInfo = new ProcessStartInfo
             {
@@ -115,14 +131,17 @@ public sealed class TrayController : IDisposable
                 CreateNoWindow = true,
                 WorkingDirectory = Path.GetDirectoryName(LoggerExe)
             };
-            startInfo.ArgumentList.Add(LogFile);
+            startInfo.ArgumentList.Add(DatabaseFile);
             startInfo.ArgumentList.Add("--stop-event");
             startInfo.ArgumentList.Add(stopEventName);
+            startInfo.ArgumentList.Add("--pause-event");
+            startInfo.ArgumentList.Add(pauseEventName);
 
             _loggerProcess = Process.Start(startInfo)
                 ?? throw new InvalidOperationException("The logger process could not be created.");
             _ownsLoggerProcess = true;
-            _trayIcon.ShowBalloon("Window Logger", "Logging started.");
+            _isLoggerPaused = startPaused;
+            _trayIcon.ShowBalloon("Window Logger", startPaused ? "Logging started in paused mode." : "Logging started.");
         }
         catch (Exception ex)
         {
@@ -130,6 +149,32 @@ public sealed class TrayController : IDisposable
             ShowError($"Failed to start logger: {ex.Message}");
         }
 
+        UpdateMenuState();
+    }
+
+    private void PauseLogger()
+    {
+        if (!_ownsLoggerProcess || !IsLoggerRunning() || _loggerPauseEvent is null || _isLoggerPaused)
+        {
+            return;
+        }
+
+        _loggerPauseEvent.Set();
+        _isLoggerPaused = true;
+        _trayIcon.ShowBalloon("Window Logger", "Tracking paused. Foreground-window activity is not being collected.");
+        UpdateMenuState();
+    }
+
+    private void ResumeLogger()
+    {
+        if (!_ownsLoggerProcess || !IsLoggerRunning() || _loggerPauseEvent is null || !_isLoggerPaused)
+        {
+            return;
+        }
+
+        _loggerPauseEvent.Reset();
+        _isLoggerPaused = false;
+        _trayIcon.ShowBalloon("Window Logger", "Tracking resumed.");
         UpdateMenuState();
     }
 
@@ -190,9 +235,9 @@ public sealed class TrayController : IDisposable
                 return;
             }
 
-            if (!File.Exists(LogFile))
+            if (!File.Exists(DatabaseFile))
             {
-                ShowError($"No log file found at:\n{LogFile}\n\nPlease run the logger first to generate data.");
+                ShowError($"No activity database found at:\n{DatabaseFile}\n\nPlease run the logger first to generate data.");
                 return;
             }
 
@@ -209,7 +254,7 @@ public sealed class TrayController : IDisposable
                 RedirectStandardError = true,
                 WorkingDirectory = Path.GetDirectoryName(AnalyserExe)
             };
-            startInfo.ArgumentList.Add(LogFile);
+            startInfo.ArgumentList.Add(DatabaseFile);
             startInfo.ArgumentList.Add(ReportFile);
 
             using Process process = Process.Start(startInfo)
@@ -235,6 +280,143 @@ public sealed class TrayController : IDisposable
         {
             _analysisInProgress = false;
             UpdateMenuState();
+        }
+    }
+
+    private async Task ExportDataAsync()
+    {
+        if (_analysisInProgress || !File.Exists(DatabaseFile))
+        {
+            return;
+        }
+
+        var dialog = new Microsoft.Win32.SaveFileDialog
+        {
+            Title = "Export WindowLogger activity",
+            Filter = "CSV files (*.csv)|*.csv|All files (*.*)|*.*",
+            DefaultExt = ".csv",
+            AddExtension = true,
+            FileName = $"WindowLogger-{DateTime.Now:yyyy-MM-dd}.csv"
+        };
+        if (dialog.ShowDialog() != true)
+        {
+            return;
+        }
+
+        _analysisInProgress = true;
+        UpdateMenuState();
+        try
+        {
+            await RunAnalyserCommandAsync(["export", DatabaseFile, dialog.FileName]);
+            _trayIcon.ShowBalloon("Window Logger", "Activity exported to CSV.");
+        }
+        catch (Exception ex)
+        {
+            ShowError($"CSV export failed: {ex.Message}");
+        }
+        finally
+        {
+            _analysisInProgress = false;
+            UpdateMenuState();
+        }
+    }
+
+    private async Task ImportDataAsync()
+    {
+        if (_analysisInProgress)
+        {
+            return;
+        }
+
+        if (IsLoggerRunning() && !_ownsLoggerProcess)
+        {
+            ShowError("Activity cannot be replaced because this tray instance does not own the running logger. Stop that logger first.");
+            return;
+        }
+
+        var dialog = new Microsoft.Win32.OpenFileDialog
+        {
+            Title = "Import WindowLogger activity",
+            Filter = "CSV files (*.csv)|*.csv|All files (*.*)|*.*",
+            DefaultExt = ".csv",
+            CheckFileExists = true
+        };
+        if (dialog.ShowDialog() != true)
+        {
+            return;
+        }
+
+        Wpf.MessageBoxResult confirmation = Wpf.MessageBox.Show(
+            "Importing replaces all activity currently stored in WindowLogger. Continue?",
+            "Import Activity",
+            Wpf.MessageBoxButton.YesNo,
+            Wpf.MessageBoxImage.Warning);
+        if (confirmation != Wpf.MessageBoxResult.Yes)
+        {
+            return;
+        }
+
+        bool wasRunning = IsLoggerRunning();
+        bool wasPaused = wasRunning && _isLoggerPaused;
+        _analysisInProgress = true;
+        UpdateMenuState();
+        try
+        {
+            if (wasRunning)
+            {
+                await StopLoggerAsync(showNotification: false);
+            }
+
+            await RunAnalyserCommandAsync(["import", dialog.FileName, DatabaseFile, "--replace"]);
+            _trayIcon.ShowBalloon("Window Logger", "CSV activity imported successfully.");
+        }
+        catch (Exception ex)
+        {
+            ShowError($"CSV import failed: {ex.Message}");
+        }
+        finally
+        {
+            if (wasRunning)
+            {
+                StartLogger(startPaused: wasPaused);
+            }
+
+            _analysisInProgress = false;
+            UpdateMenuState();
+        }
+    }
+
+    private async Task RunAnalyserCommandAsync(IReadOnlyList<string> arguments)
+    {
+        if (!File.Exists(AnalyserExe))
+        {
+            throw new FileNotFoundException("The analyser executable was not found.", AnalyserExe);
+        }
+
+        var startInfo = new ProcessStartInfo
+        {
+            FileName = AnalyserExe,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            RedirectStandardError = true,
+            WorkingDirectory = Path.GetDirectoryName(AnalyserExe)
+        };
+        foreach (string argument in arguments)
+        {
+            startInfo.ArgumentList.Add(argument);
+        }
+
+        using Process process = Process.Start(startInfo)
+            ?? throw new InvalidOperationException("The analyser process could not be created.");
+        Task<string> errorOutputTask = process.StandardError.ReadToEndAsync();
+        await process.WaitForExitAsync();
+        string errorOutput = (await errorOutputTask).Trim();
+        if (process.ExitCode != 0)
+        {
+            throw new InvalidOperationException(
+                string.IsNullOrWhiteSpace(errorOutput)
+                    ? $"The analyser exited with code {process.ExitCode}."
+                    : errorOutput);
         }
     }
 
@@ -278,8 +460,14 @@ public sealed class TrayController : IDisposable
 
     private async Task ClearDataAsync()
     {
+        if (IsLoggerRunning() && !_ownsLoggerProcess)
+        {
+            ShowError("Activity cannot be cleared because this tray instance does not own the running logger. Stop that logger first.");
+            return;
+        }
+
         Wpf.MessageBoxResult result = Wpf.MessageBox.Show(
-            $"Are you sure you want to delete the log file?\nTarget: {LogFile}",
+            $"Are you sure you want to delete the activity database?\nTarget: {DatabaseFile}",
             "Clear Data",
             Wpf.MessageBoxButton.YesNo,
             Wpf.MessageBoxImage.Warning);
@@ -291,22 +479,20 @@ public sealed class TrayController : IDisposable
         try
         {
             bool wasRunning = IsLoggerRunning();
+            bool wasPaused = wasRunning && _isLoggerPaused;
             if (wasRunning)
             {
                 await StopLoggerAsync(showNotification: false);
             }
 
-            if (File.Exists(LogFile))
-            {
-                File.Delete(LogFile);
-            }
+            DeleteDatabaseFiles(DatabaseFile);
 
             if (wasRunning)
             {
-                StartLogger();
+                StartLogger(startPaused: wasPaused);
             }
 
-            _trayIcon.ShowBalloon("Data Cleared", "Log file has been deleted.");
+            _trayIcon.ShowBalloon("Data Cleared", "The activity database has been deleted.");
         }
         catch (Exception ex)
         {
@@ -353,11 +539,26 @@ public sealed class TrayController : IDisposable
         bool isRunning = IsLoggerRunning();
         _startLoggingItem.IsEnabled = !isRunning;
         _stopLoggingItem.IsEnabled = isRunning;
+        _pauseLoggingItem.IsEnabled = isRunning && _ownsLoggerProcess && !_isLoggerPaused;
+        _resumeLoggingItem.IsEnabled = isRunning && _ownsLoggerProcess && _isLoggerPaused;
         _generateReportItem.IsEnabled = !_analysisInProgress;
+        _exportDataItem.IsEnabled = !_analysisInProgress && File.Exists(DatabaseFile);
+        _importDataItem.IsEnabled = !_analysisInProgress && (!isRunning || _ownsLoggerProcess);
     }
 
     private static void ShowError(string message) =>
         Wpf.MessageBox.Show(message, "Window Logger Error", Wpf.MessageBoxButton.OK, Wpf.MessageBoxImage.Error);
+
+    private static void DeleteDatabaseFiles(string databasePath)
+    {
+        foreach (string path in new[] { databasePath, $"{databasePath}-wal", $"{databasePath}-shm" })
+        {
+            if (File.Exists(path))
+            {
+                File.Delete(path);
+            }
+        }
+    }
 
     private void DisposeLoggerHandles()
     {
@@ -365,7 +566,10 @@ public sealed class TrayController : IDisposable
         _loggerProcess = null;
         _loggerStopEvent?.Dispose();
         _loggerStopEvent = null;
+        _loggerPauseEvent?.Dispose();
+        _loggerPauseEvent = null;
         _ownsLoggerProcess = false;
+        _isLoggerPaused = false;
     }
 
     public void Dispose()

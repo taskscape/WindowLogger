@@ -31,6 +31,30 @@ public sealed class AnalysisEngineTests
     }
 
     [Test]
+    public void Pause_session_boundary_excludes_paused_time()
+    {
+        DateTime day = new(2026, 7, 10, 0, 0, 0);
+        LogEvent[] events =
+        [
+            Start(day.AddHours(9)),
+            Usage(day.AddHours(9), "Work before pause [one.exe]"),
+            End(day.AddHours(9).AddMinutes(10)),
+            Start(day.AddHours(9).AddMinutes(40)),
+            Usage(day.AddHours(9).AddMinutes(40), "Work after pause [two.exe]"),
+            End(day.AddHours(9).AddMinutes(50))
+        ];
+
+        AnalysisResult result = new AnalysisEngine(new AppSettings()).Analyze(events);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.UndefinedApplications.Single(row => row.Name.StartsWith("Work before")).Minutes, Is.EqualTo(10));
+            Assert.That(result.UndefinedApplications.Single(row => row.Name.StartsWith("Work after")).Minutes, Is.EqualTo(10));
+            Assert.That(result.UndefinedApplications.Sum(row => row.Minutes), Is.EqualTo(20));
+        });
+    }
+
+    [Test]
     public void Interval_crossing_midnight_is_split_between_days()
     {
         DateTime day = new(2026, 7, 10, 0, 0, 0);

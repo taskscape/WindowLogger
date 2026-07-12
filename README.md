@@ -16,7 +16,7 @@ WindowLogger answers practical questions such as:
 
 It records changes to the foreground window, the executable name, active or inactive status, and explicit logger-session boundaries. The analyser then applies configurable matching rules and produces an `.xlsx` workbook.
 
-> Window titles can contain document names, website titles, customer names, or other sensitive text. Review and protect `WindowLogger.csv` as you would any other personal activity record.
+> Window titles can contain document names, website titles, customer names, or other sensitive text. Review and protect `WindowLogger.db` and exported CSV files as you would any other personal activity record.
 
 ## Benefits
 
@@ -24,6 +24,8 @@ It records changes to the foreground window, the executable name, active or inac
 - **Low-friction collection:** the tray controller starts, pauses, resumes, and stops logging in the background.
 - **Privacy on demand:** pause tracking during sensitive or personal activity without terminating the logger.
 - **Accurate session accounting:** shutdown and restart boundaries prevent offline time from being counted as usage.
+- **Reliable long-term storage:** SQLite provides indexed date queries, atomic writes, and consistent reports while collection continues.
+- **Portable history:** activity can be exported to or restored from the original CSV format.
 - **Flexible classification:** applications can be matched by one or more title or executable keywords and assigned to multiple categories.
 - **Actionable reports:** Excel output includes category, application, undefined-window, and daily-window views.
 - **Easy refinement:** unmatched windows reveal which configuration rules should be added next.
@@ -36,7 +38,7 @@ It records changes to the foreground window, the executable name, active or inac
 | `WindowLoggerTray.exe` | WPF tray controller and recommended entry point. |
 | `WindowLogger.exe` | Background foreground-window and inactivity collector. |
 | `WindowLoggerConfigGui.exe` | WPF editor for application, exclusion, and category rules. |
-| `WindowAnalyser.exe` | Streaming CSV analyser and Excel report generator. |
+| `WindowAnalyser.exe` | SQLite/CSV analyser, portability utility, and Excel report generator. |
 | `appsettings.json` | Classification and exclusion rules used by the analyser. |
 
 ## Install and use
@@ -53,11 +55,11 @@ The installer:
 
 ### 2. Start collecting activity
 
-Find the WindowLogger icon in the Windows notification area, right-click it, and choose **Start Logging**. The logger runs without a visible console and appends activity to `WindowLogger.csv`.
+Find the WindowLogger icon in the Windows notification area, right-click it, and choose **Start Logging**. The logger runs without a visible console and writes activity atomically to `WindowLogger.db`.
 
 Choose **Pause Logging** before sensitive or personal activity. While paused, the logger process stays available but does not inspect or record foreground windows. Choose **Resume Logging** to continue collection. Pause and resume create separate session boundaries, so the paused interval is excluded from reports.
 
-Choose **Stop Logging** before moving or manually editing the CSV. Normal shutdown records a session boundary so time between logger runs is not included in reports.
+Choose **Stop Logging** before moving or backing up the database itself. Normal shutdown records a session boundary so time between logger runs is not included in reports.
 
 ### 3. Configure application and category rules
 
@@ -72,7 +74,7 @@ Use **Undefined Applications** in a generated report to discover titles that nee
 
 ### 4. Generate a report
 
-Choose **Generate Report & Open** from the tray menu. WindowLogger analyses the current CSV, creates `Report.xlsx`, and opens it with the system's associated spreadsheet application.
+Choose **Generate Report & Open** from the tray menu. WindowLogger reads a consistent SQLite snapshot—even while collection continues—creates `Report.xlsx`, and opens it with the system's associated spreadsheet application.
 
 The workbook contains:
 
@@ -83,7 +85,9 @@ The workbook contains:
 
 ### 5. Manage collected data
 
-Choose **Clear Collected Data** to stop the logger, remove the current CSV, and restart collection if it was previously active. If tracking was paused, it restarts in the paused state. This action cannot be undone.
+Choose **Export Activity to CSV** for a portable backup or **Import Activity from CSV** to replace the current history. Import temporarily stops collection and restores its previous running or paused state afterward.
+
+Choose **Clear Collected Data** to stop the logger, remove the current SQLite database, and restart collection if it was previously active. If tracking was paused, it restarts in the paused state. This action cannot be undone.
 
 ## Data locations
 
@@ -91,7 +95,7 @@ For an installer-based deployment, the application files and writable data are s
 
 ```text
 %LOCALAPPDATA%\Programs\WindowLogger\
-├── WindowLogger.csv
+├── WindowLogger.db
 ├── appsettings.json
 ├── Report.xlsx
 └── application executables and runtime files
@@ -99,7 +103,7 @@ For an installer-based deployment, the application files and writable data are s
 
 | File | Contents |
 | --- | --- |
-| `WindowLogger.csv` | Timestamped foreground-window, status, and session events. |
+| `WindowLogger.db` | Indexed SQLite history containing foreground-window, status, and session events. |
 | `appsettings.json` | Application matching, exclusions, and categories. |
 | `Report.xlsx` | Most recently generated analysis workbook. |
 
@@ -134,11 +138,14 @@ dotnet WindowLogger.dll
 
 **Running the Analyser:**
 ```bash
-dotnet WindowAnalyser.dll WindowLogger.csv Report.xlsx
+dotnet WindowAnalyser.dll WindowLogger.db Report.xlsx
 ```
-### Log File Format
 
-The CSV file contains three columns:
+The logger automatically imports a legacy `WindowLogger.csv` when it creates an empty database, then renames the source to `WindowLogger.migrated-<timestamp>.csv` so it cannot be imported twice.
+
+### Portable CSV format
+
+CSV imports and exports contain three columns:
 
 ```text
 Timestamp,Window Title [Executable],Status
@@ -199,7 +206,7 @@ Time Spent (Hours) | Time Spent (Minutes)
 - **Real-time Window Tracking**: Monitors the foreground window every 500ms
 - **Executable Detection**: Records both window title and process name
 - **Inactivity Detection**: Automatically detects when user is idle (default: 1 minute)
-- **Continuous Logging**: Appends to CSV file - safe to stop/restart
+- **Durable Logging**: Writes atomic SQLite transactions in WAL mode, allowing reports and exports during collection
 
 ### How It Works
 
@@ -243,22 +250,30 @@ private static readonly TimeSpan PollInterval = TimeSpan.FromMilliseconds(500);
 ### Command Line Usage
 
 ```bash
-WindowAnalyser.exe <input-csv-file> <output-xlsx-file>
+WindowAnalyser.exe <input-db-or-csv-file> <output-xlsx-file>
+WindowAnalyser.exe export <input-db-file> <output-csv-file> [--from <date>] [--to <exclusive-date>]
+WindowAnalyser.exe import <input-csv-file> <output-db-file> [--replace]
 ```
 
 **Parameters:**
 
-- `input-csv-file` - Path to the CSV log file created by WindowLogger
+- `input-db-or-csv-file` - Path to the SQLite database or a portable legacy CSV export
 - `output-xlsx-file` - Desired path/name for the Excel report
+- `--from` / `--to` - Optional indexed export range; the lower bound is inclusive and upper bound exclusive
+- `--replace` - Atomically replaces the destination database contents during import
 
 **Examples:**
 
 ```bash
 # Absolute paths
-WindowAnalyser.exe C:\Logs\WindowLogger.csv C:\Reports\weekly_report.xlsx
+WindowAnalyser.exe C:\Logs\WindowLogger.db C:\Reports\weekly_report.xlsx
 
 # Relative paths
-WindowAnalyser.exe WindowLogger.csv report.xlsx
+WindowAnalyser.exe WindowLogger.db report.xlsx
+
+# Portable backup and restore
+WindowAnalyser.exe export WindowLogger.db backup.csv
+WindowAnalyser.exe import backup.csv restored.db --replace
 
 # Analyze multiple periods
 WindowAnalyser.exe logs\january.csv reports\january_analysis.xlsx
@@ -581,11 +596,12 @@ Group applications into higher-level categories for aggregate reporting.
 
 **WindowLogger:**
 
-- No external dependencies (uses built-in Windows APIs)
+- Microsoft.Data.Sqlite and SQLitePCLRaw for durable embedded storage
 
 **WindowAnalyser:**
 
 - ClosedXML (0.105.0-rc) - for Excel generation
+- Microsoft.Data.Sqlite - for concurrent SQLite snapshot reads and CSV portability operations
 - System.Text.Json (included with .NET) - for configuration parsing
 
 ---
@@ -596,8 +612,8 @@ Group applications into higher-level categories for aggregate reporting.
 
 1. **Run Continuously**: Leave WindowLogger running all day for accurate tracking
 2. **Regular Analysis**: Analyze logs daily or weekly to identify patterns
-3. **Backup Logs**: Copy CSV files regularly - they contain your complete history
-4. **Multiple Logs**: Create separate logs for different projects or time periods by moving/renaming the CSV file
+3. **Backup Activity**: Use **Export Activity to CSV** for portable backups while collection continues
+4. **Retain History**: Keep the SQLite database for efficient long histories and use date-bounded CLI exports when needed
 
 ### Configuration
 
@@ -627,12 +643,12 @@ Group applications into higher-level categories for aggregate reporting.
 2. Validate JSON syntax using a JSON validator
 3. The analyzer will use default settings (no grouping) if the file is invalid
 
-### "CSV format error: each row must have at least 3 columns"
+### CSV import warnings
 
 **Cause:** Log file is corrupted or has an unexpected format  
 **Solution:**
 
-1. Check that the CSV file was created by WindowLogger
+1. Check that the CSV file was exported by WindowLogger or uses its three-column legacy format
 2. Ensure the file hasn't been manually edited with incorrect formatting
 3. Verify the file isn't empty
 
@@ -645,14 +661,14 @@ Group applications into higher-level categories for aggregate reporting.
 2. Add application rules to `appsettings.json` matching those window titles
 3. Re-run the analysis
 
-### Log file grows too large
+### Activity database grows too large
 
 **Cause:** Running continuously for extended periods  
 **Solution:**
 
-1. Archive old logs regularly (e.g., monthly)
-2. Analyze and move the CSV file to a different location
-3. WindowLogger will create a new `WindowLogger.csv` automatically
+1. Export the desired date ranges to CSV for archival
+2. Keep a backup before clearing collected data
+3. Use **Clear Collected Data** to start a new database while preserving the logger's running or paused state
 
 ---
 

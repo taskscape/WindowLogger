@@ -7,6 +7,9 @@ _ReSharper.Caches
 *.suo
 *.log
 *.csv
+*.db
+*.db-shm
+*.db-wal
 Installer/Output/
 Installer/Publish/
 Installer/Staging/
