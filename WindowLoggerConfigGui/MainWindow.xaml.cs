@@ -8,6 +8,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Media;
 using System.Windows.Threading;
 using Microsoft.Win32;
 using WindowLogger.Shared.Activity;
@@ -35,6 +36,19 @@ public partial class MainWindow : Window
     private EventWaitHandle? _loggerPauseEvent;
     private bool _ownsLogger;
     private bool _isPaused;
+    private DashboardPeriod _dashboardPeriod = DashboardPeriod.Day;
+    private DateTime _dashboardAnchor = DateTime.Today;
+    private DateTime _dashboardRangeStart;
+    private DateTime _dashboardRangeEnd;
+    private ActivityRecord[] _currentAnalyticsRecords = [];
+    private ActivityRecord[] _previousAnalyticsRecords = [];
+    private DashboardSnapshot? _dashboardSnapshot;
+    private bool _controlCenterLoaded;
+    private bool _updatingAnalyticsUi;
+    private DateTime _previousRangeStart;
+    private DateTime _previousRangeEnd;
+    private DateTime _dashboardPeriodEnd;
+    private int _dashboardTimerTicks;
 
     private string LoggerExe => FindComponentPath("WindowLogger", "WindowLogger.exe");
     private string AnalyserExe => FindComponentPath("WindowAnalyser", "WindowAnalyser.exe");
@@ -55,7 +69,14 @@ public partial class MainWindow : Window
         }
         Loaded += MainWindow_Loaded;
         Closing += MainWindow_Closing;
-        _dashboardTimer.Tick += (_, _) => RefreshDashboard();
+        _dashboardTimer.Tick += (_, _) =>
+        {
+            RefreshDashboard();
+            if (++_dashboardTimerTicks % 15 == 0)
+            {
+                LoadAnalyticsData();
+            }
+        };
     }
 
     private void MainWindow_Loaded(object sender, RoutedEventArgs e)
@@ -64,6 +85,8 @@ public partial class MainWindow : Window
         LoadUserSettings();
         DetectExistingLogger();
         RefreshDashboard();
+        _controlCenterLoaded = true;
+        LoadAnalyticsData();
         _dashboardTimer.Start();
         if (_userSettings.StartTrackingOnLaunch && !IsLoggerRunning())
         {
@@ -393,6 +416,354 @@ public partial class MainWindow : Window
         }
     }
 
+    private void DayPeriod_Click(object sender, RoutedEventArgs e) => SetDashboardPeriod(DashboardPeriod.Day);
+    private void WeekPeriod_Click(object sender, RoutedEventArgs e) => SetDashboardPeriod(DashboardPeriod.Week);
+    private void MonthPeriod_Click(object sender, RoutedEventArgs e) => SetDashboardPeriod(DashboardPeriod.Month);
+
+    private void SetDashboardPeriod(DashboardPeriod period)
+    {
+        _dashboardPeriod = period;
+        _dashboardAnchor = DateTime.Today;
+        LoadAnalyticsData();
+    }
+
+    private void PreviousPeriod_Click(object sender, RoutedEventArgs e)
+    {
+        _dashboardAnchor = ShiftPeriod(_dashboardAnchor, -1);
+        LoadAnalyticsData();
+    }
+
+    private void NextPeriod_Click(object sender, RoutedEventArgs e)
+    {
+        _dashboardAnchor = ShiftPeriod(_dashboardAnchor, 1);
+        LoadAnalyticsData();
+    }
+
+    private void CurrentPeriod_Click(object sender, RoutedEventArgs e)
+    {
+        _dashboardAnchor = DateTime.Today;
+        LoadAnalyticsData();
+    }
+
+    private DateTime ShiftPeriod(DateTime value, int direction) => _dashboardPeriod switch
+    {
+        DashboardPeriod.Day => value.AddDays(direction),
+        DashboardPeriod.Week => value.AddDays(7 * direction),
+        DashboardPeriod.Month => value.AddMonths(direction),
+        _ => value
+    };
+
+    private void LoadAnalyticsData()
+    {
+        if (!_controlCenterLoaded)
+        {
+            return;
+        }
+
+        (_dashboardRangeStart, _dashboardPeriodEnd) = GetPeriodRange(_dashboardAnchor, _dashboardPeriod);
+        (_previousRangeStart, DateTime previousPeriodEnd) = GetPeriodRange(
+            ShiftPeriod(_dashboardRangeStart, -1), _dashboardPeriod);
+
+        DateTime now = DateTime.Now;
+        _dashboardRangeEnd = _dashboardRangeStart <= now && now < _dashboardPeriodEnd ? now : _dashboardPeriodEnd;
+        if (_dashboardRangeStart > now)
+        {
+            _dashboardRangeEnd = _dashboardRangeStart;
+        }
+
+        TimeSpan elapsed = _dashboardRangeEnd - _dashboardRangeStart;
+        _previousRangeEnd = _dashboardRangeEnd < _dashboardPeriodEnd
+            ? Min(_previousRangeStart + elapsed, previousPeriodEnd)
+            : previousPeriodEnd;
+
+        try
+        {
+            if (File.Exists(DatabaseFile))
+            {
+                using var database = new ActivityDatabase(DatabaseFile, readOnly: true);
+                _currentAnalyticsRecords = _dashboardRangeEnd > _dashboardRangeStart
+                    ? database.ReadRangeWithContext(_dashboardRangeStart, _dashboardRangeEnd).ToArray()
+                    : [];
+                _previousAnalyticsRecords = _previousRangeEnd > _previousRangeStart
+                    ? database.ReadRangeWithContext(_previousRangeStart, _previousRangeEnd).ToArray()
+                    : [];
+            }
+            else
+            {
+                _currentAnalyticsRecords = [];
+                _previousAnalyticsRecords = [];
+            }
+            ApplyAnalyticsFilters();
+        }
+        catch (Exception ex)
+        {
+            SetStatus($"Timeline unavailable: {ex.Message}");
+        }
+    }
+
+    private static DateTime Min(DateTime first, DateTime second) => first <= second ? first : second;
+
+    private static (DateTime Start, DateTime End) GetPeriodRange(DateTime anchor, DashboardPeriod period)
+    {
+        DateTime day = anchor.Date;
+        return period switch
+        {
+            DashboardPeriod.Day => (day, day.AddDays(1)),
+            DashboardPeriod.Week => GetWeekRange(day),
+            DashboardPeriod.Month => (new DateTime(day.Year, day.Month, 1), new DateTime(day.Year, day.Month, 1).AddMonths(1)),
+            _ => (day, day.AddDays(1))
+        };
+    }
+
+    private static (DateTime Start, DateTime End) GetWeekRange(DateTime day)
+    {
+        int offset = ((int)day.DayOfWeek - (int)DayOfWeek.Monday + 7) % 7;
+        DateTime start = day.AddDays(-offset);
+        return (start, start.AddDays(7));
+    }
+
+    private void AnalyticsFilter_Changed(object sender, RoutedEventArgs e)
+    {
+        if (_controlCenterLoaded && !_updatingAnalyticsUi)
+        {
+            ApplyAnalyticsFilters();
+        }
+    }
+
+    private void ApplyAnalyticsFilters()
+    {
+        if (_dashboardRangeEnd <= _dashboardRangeStart || _previousRangeEnd <= _previousRangeStart)
+        {
+            _dashboardSnapshot = new DashboardSnapshot
+            {
+                Timeline = [], PreviousTimeline = [], Categories = [], Applications = []
+            };
+        }
+        else
+        {
+            string status = (AnalyticsStatusFilter.SelectedItem as ComboBoxItem)?.Content?.ToString() ?? "All";
+            _dashboardSnapshot = DashboardAnalytics.Build(
+                _currentAnalyticsRecords,
+                _previousAnalyticsRecords,
+                _settings,
+                _dashboardRangeStart,
+                _dashboardRangeEnd,
+                _previousRangeStart,
+                _previousRangeEnd,
+                AnalyticsSearchText.Text,
+                status);
+        }
+
+        RenderAnalytics();
+    }
+
+    private void RenderAnalytics()
+    {
+        if (_dashboardSnapshot is null)
+        {
+            return;
+        }
+
+        double total = _dashboardSnapshot.ActiveMinutes + _dashboardSnapshot.IdleMinutes;
+        double previous = _dashboardSnapshot.PreviousMinutes;
+        AnalyticsActiveText.Text = DashboardBarItem.FormatDuration(_dashboardSnapshot.ActiveMinutes);
+        AnalyticsIdleText.Text = DashboardBarItem.FormatDuration(_dashboardSnapshot.IdleMinutes);
+        AnalyticsPreviousText.Text = DashboardBarItem.FormatDuration(previous);
+        AnalyticsChangeText.Text = previous <= 0
+            ? total <= 0 ? "0%" : "New"
+            : $"{(total - previous) / previous * 100:+0.#;-0.#;0}%";
+        AnalyticsPeriodText.Text = FormatPeriodLabel(_dashboardRangeStart, _dashboardPeriodEnd);
+        DayPeriodButton.FontWeight = _dashboardPeriod == DashboardPeriod.Day ? FontWeights.Bold : FontWeights.Normal;
+        WeekPeriodButton.FontWeight = _dashboardPeriod == DashboardPeriod.Week ? FontWeights.Bold : FontWeights.Normal;
+        MonthPeriodButton.FontWeight = _dashboardPeriod == DashboardPeriod.Month ? FontWeights.Bold : FontWeights.Normal;
+
+        _updatingAnalyticsUi = true;
+        try
+        {
+            string? selectedCategory = (CategoryChartList.SelectedItem as DashboardBarItem)?.Name;
+            CategoryChartList.ItemsSource = CreateBarItems(_dashboardSnapshot.Categories);
+            CategoryChartList.SelectedItem = CategoryChartList.Items.Cast<DashboardBarItem>()
+                .FirstOrDefault(item => item.Name.Equals(selectedCategory, StringComparison.OrdinalIgnoreCase));
+            UpdateApplicationsForCategory();
+        }
+        finally
+        {
+            _updatingAnalyticsUi = false;
+        }
+        RenderTimeline();
+    }
+
+    private static string FormatPeriodLabel(DateTime start, DateTime end) => end - start <= TimeSpan.FromDays(1)
+        ? start.ToString("dddd, d MMMM yyyy")
+        : start.Year == end.AddTicks(-1).Year
+            ? $"{start:d MMM} – {end.AddDays(-1):d MMM yyyy}"
+            : $"{start:d MMM yyyy} – {end.AddDays(-1):d MMM yyyy}";
+
+    private static IReadOnlyList<DashboardBarItem> CreateBarItems(IEnumerable<DashboardBreakdown> breakdowns)
+    {
+        DashboardBreakdown[] data = breakdowns.ToArray();
+        double maximum = data.Select(item => Math.Max(item.TotalMinutes, item.PreviousMinutes)).DefaultIfEmpty(0).Max();
+        return data.Select(item => new DashboardBarItem
+            {
+                Data = item,
+                BarWidth = maximum <= 0 ? 0 : Math.Max(2, item.TotalMinutes / maximum * 230)
+            })
+            .ToList();
+    }
+
+    private void CategoryChartList_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (!_updatingAnalyticsUi)
+        {
+            UpdateApplicationsForCategory();
+        }
+    }
+
+    private void UpdateApplicationsForCategory()
+    {
+        if (_dashboardSnapshot is null)
+        {
+            return;
+        }
+        string? category = (CategoryChartList.SelectedItem as DashboardBarItem)?.Name;
+        IEnumerable<TimelineBlock> current = _dashboardSnapshot.Timeline;
+        IEnumerable<TimelineBlock> previous = _dashboardSnapshot.PreviousTimeline;
+        if (!string.IsNullOrWhiteSpace(category))
+        {
+            current = current.Where(block => block.Categories.Contains(category, StringComparer.OrdinalIgnoreCase));
+            previous = previous.Where(block => block.Categories.Contains(category, StringComparer.OrdinalIgnoreCase));
+        }
+
+        string? selectedApplication = (ApplicationChartList.SelectedItem as DashboardBarItem)?.Name;
+        ApplicationChartList.ItemsSource = CreateBarItems(Summarize(current, previous, block => block.Application));
+        ApplicationChartList.SelectedItem = ApplicationChartList.Items.Cast<DashboardBarItem>()
+            .FirstOrDefault(item => item.Name.Equals(selectedApplication, StringComparison.OrdinalIgnoreCase));
+        UpdateWindowDrillDown();
+    }
+
+    private void ApplicationChartList_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (!_updatingAnalyticsUi)
+        {
+            UpdateWindowDrillDown();
+        }
+    }
+
+    private void UpdateWindowDrillDown()
+    {
+        if (_dashboardSnapshot is null)
+        {
+            return;
+        }
+        string? category = (CategoryChartList.SelectedItem as DashboardBarItem)?.Name;
+        string? application = (ApplicationChartList.SelectedItem as DashboardBarItem)?.Name;
+        IEnumerable<TimelineBlock> blocks = _dashboardSnapshot.Timeline;
+        if (!string.IsNullOrWhiteSpace(category))
+        {
+            blocks = blocks.Where(block => block.Categories.Contains(category, StringComparer.OrdinalIgnoreCase));
+        }
+        if (!string.IsNullOrWhiteSpace(application))
+        {
+            blocks = blocks.Where(block => block.Application.Equals(application, StringComparison.OrdinalIgnoreCase));
+        }
+        WindowTitleList.ItemsSource = blocks
+            .GroupBy(block => new { block.WindowTitle, block.Status })
+            .Select(group => new
+            {
+                group.Key.WindowTitle,
+                group.Key.Status,
+                Minutes = group.Sum(block => block.Minutes)
+            })
+            .OrderByDescending(item => item.Minutes)
+            .Select(item => $"{DashboardBarItem.FormatDuration(item.Minutes),8}  {item.Status,-8}  {item.WindowTitle}")
+            .ToList();
+    }
+
+    private static IReadOnlyList<DashboardBreakdown> Summarize(
+        IEnumerable<TimelineBlock> current,
+        IEnumerable<TimelineBlock> previous,
+        Func<TimelineBlock, string> keySelector)
+    {
+        Dictionary<string, TimelineBlock[]> currentGroups = current.GroupBy(keySelector, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(group => group.Key, group => group.ToArray(), StringComparer.OrdinalIgnoreCase);
+        Dictionary<string, double> previousGroups = previous.GroupBy(keySelector, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(group => group.Key, group => group.Sum(block => block.Minutes), StringComparer.OrdinalIgnoreCase);
+        return currentGroups.Keys.Union(previousGroups.Keys, StringComparer.OrdinalIgnoreCase)
+            .Select(name =>
+            {
+                TimelineBlock[] blocks = currentGroups.GetValueOrDefault(name) ?? [];
+                return new DashboardBreakdown(
+                    name,
+                    blocks.Where(block => block.Status == "Active").Sum(block => block.Minutes),
+                    blocks.Where(block => block.Status == "Inactive").Sum(block => block.Minutes),
+                    previousGroups.GetValueOrDefault(name));
+            })
+            .OrderByDescending(item => item.TotalMinutes)
+            .ToList();
+    }
+
+    private void TimelineCanvas_SizeChanged(object sender, SizeChangedEventArgs e) => RenderTimeline();
+
+    private void RenderTimeline()
+    {
+        TimelineCanvas.Children.Clear();
+        if (_dashboardSnapshot is null || TimelineCanvas.ActualWidth <= 0 || _dashboardPeriodEnd <= _dashboardRangeStart)
+        {
+            return;
+        }
+
+        double width = TimelineCanvas.ActualWidth;
+        double periodTicks = (_dashboardPeriodEnd - _dashboardRangeStart).Ticks;
+        foreach (DateTime tick in GetTimelineTicks())
+        {
+            double x = (tick - _dashboardRangeStart).Ticks / periodTicks * width;
+            var line = new System.Windows.Shapes.Line
+                { X1 = x, X2 = x, Y1 = 0, Y2 = 76, Stroke = Brushes.LightGray, StrokeThickness = 1 };
+            TimelineCanvas.Children.Add(line);
+            var label = new TextBlock { Text = FormatTimelineTick(tick), FontSize = 10, Foreground = Brushes.DimGray };
+            Canvas.SetLeft(label, Math.Min(x + 2, Math.Max(0, width - 44)));
+            Canvas.SetTop(label, 2);
+            TimelineCanvas.Children.Add(label);
+        }
+
+        foreach (TimelineBlock block in _dashboardSnapshot.Timeline)
+        {
+            double left = (block.Start - _dashboardRangeStart).Ticks / periodTicks * width;
+            double blockWidth = Math.Max(2, (block.End - block.Start).Ticks / periodTicks * width);
+            var border = new Border
+            {
+                Width = blockWidth,
+                Height = 42,
+                Background = block.Status == "Active"
+                    ? new SolidColorBrush(Color.FromRgb(67, 133, 208))
+                    : new SolidColorBrush(Color.FromRgb(224, 162, 58)),
+                ToolTip = $"{block.Start:g} – {block.End:t}\n{block.Status} • {block.Application}\n{block.WindowTitle}"
+            };
+            Canvas.SetLeft(border, left);
+            Canvas.SetTop(border, 24);
+            TimelineCanvas.Children.Add(border);
+        }
+    }
+
+    private IEnumerable<DateTime> GetTimelineTicks()
+    {
+        TimeSpan step = _dashboardPeriod switch
+        {
+            DashboardPeriod.Day => TimeSpan.FromHours(6),
+            DashboardPeriod.Week => TimeSpan.FromDays(1),
+            DashboardPeriod.Month => TimeSpan.FromDays(Math.Max(1, DateTime.DaysInMonth(_dashboardRangeStart.Year, _dashboardRangeStart.Month) / 6)),
+            _ => TimeSpan.FromHours(6)
+        };
+        for (DateTime tick = _dashboardRangeStart; tick < _dashboardPeriodEnd; tick += step)
+        {
+            yield return tick;
+        }
+    }
+
+    private string FormatTimelineTick(DateTime value) => _dashboardPeriod == DashboardPeriod.Day
+        ? value.ToString("HH:mm")
+        : value.ToString("ddd d");
+
     private async void GenerateReport_Click(object sender, RoutedEventArgs e)
     {
         try
@@ -540,6 +911,7 @@ public partial class MainWindow : Window
             RefreshAllLists();
             UpdatePathText();
             SetStatus($"Loaded {path}");
+            LoadAnalyticsData();
         }
         catch (Exception ex)
         {
@@ -564,6 +936,7 @@ public partial class MainWindow : Window
             _isDirty = false;
             UpdatePathText();
             SetStatus($"Saved {path}");
+            ApplyAnalyticsFilters();
         }
         catch (Exception ex)
         {

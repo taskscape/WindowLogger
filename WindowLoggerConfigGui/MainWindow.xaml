@@ -58,6 +58,104 @@
                     <ListBox x:Name="RecentActivityList" Grid.Row="3" FontFamily="Consolas" />
                 </Grid>
             </TabItem>
+            <TabItem Header="Timeline &amp; Analytics">
+                <Grid Margin="10">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                    </Grid.RowDefinitions>
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="220" /><ColumnDefinition Width="140" />
+                        </Grid.ColumnDefinitions>
+                        <Button Grid.Column="0" Margin="0,0,6,0" Padding="11,5" Click="PreviousPeriod_Click" Content="◀" />
+                        <Button Grid.Column="1" Margin="0,0,12,0" Padding="11,5" Click="CurrentPeriod_Click" Content="Today" />
+                        <Button Grid.Column="2" Margin="0,0,16,0" Padding="11,5" Click="NextPeriod_Click" Content="▶" />
+                        <Button x:Name="DayPeriodButton" Grid.Column="3" Margin="0,0,5,0" Padding="13,5" Click="DayPeriod_Click" Content="Day" />
+                        <Button x:Name="WeekPeriodButton" Grid.Column="4" Margin="0,0,5,0" Padding="13,5" Click="WeekPeriod_Click" Content="Week" />
+                        <Button x:Name="MonthPeriodButton" Grid.Column="5" HorizontalAlignment="Left" Padding="13,5" Click="MonthPeriod_Click" Content="Month" />
+                        <TextBox x:Name="AnalyticsSearchText" Grid.Column="6" Margin="10,0,8,0" Padding="6,4" TextChanged="AnalyticsFilter_Changed" ToolTip="Search categories, applications, and window titles" />
+                        <ComboBox x:Name="AnalyticsStatusFilter" Grid.Column="7" Padding="6,4" SelectedIndex="0" SelectionChanged="AnalyticsFilter_Changed">
+                            <ComboBoxItem Content="All" /><ComboBoxItem Content="Active" /><ComboBoxItem Content="Inactive" />
+                        </ComboBox>
+                    </Grid>
+
+                    <Grid Grid.Row="1" Margin="0,12,0,10">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" /><ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="*" /><ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <Border Grid.Column="0" Margin="0,0,8,0" Padding="10" Background="#FFEAF4FF" CornerRadius="4">
+                            <StackPanel><TextBlock Text="ACTIVE" Foreground="#FF365F85" /><TextBlock x:Name="AnalyticsActiveText" FontSize="20" FontWeight="SemiBold" /></StackPanel>
+                        </Border>
+                        <Border Grid.Column="1" Margin="0,0,8,0" Padding="10" Background="#FFFFF2D9" CornerRadius="4">
+                            <StackPanel><TextBlock Text="IDLE" Foreground="#FF87652D" /><TextBlock x:Name="AnalyticsIdleText" FontSize="20" FontWeight="SemiBold" /></StackPanel>
+                        </Border>
+                        <Border Grid.Column="2" Margin="0,0,8,0" Padding="10" Background="#FFF3F6FA" CornerRadius="4">
+                            <StackPanel><TextBlock Text="PREVIOUS PERIOD" Foreground="#FF52606D" /><TextBlock x:Name="AnalyticsPreviousText" FontSize="20" FontWeight="SemiBold" /></StackPanel>
+                        </Border>
+                        <Border Grid.Column="3" Padding="10" Background="#FFEDF8EE" CornerRadius="4">
+                            <StackPanel><TextBlock Text="CHANGE" Foreground="#FF44704A" /><TextBlock x:Name="AnalyticsChangeText" FontSize="20" FontWeight="SemiBold" /></StackPanel>
+                        </Border>
+                    </Grid>
+
+                    <Grid Grid.Row="2" Margin="0,0,0,10">
+                        <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="76" /></Grid.RowDefinitions>
+                        <DockPanel Margin="0,0,0,5">
+                            <TextBlock x:Name="AnalyticsPeriodText" FontSize="16" FontWeight="SemiBold" />
+                            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" HorizontalAlignment="Right">
+                                <Rectangle Width="12" Height="12" Margin="0,0,4,0" Fill="#FF4385D0" /><TextBlock Margin="0,0,14,0" Text="Active" />
+                                <Rectangle Width="12" Height="12" Margin="0,0,4,0" Fill="#FFE0A23A" /><TextBlock Text="Idle" />
+                            </StackPanel>
+                        </DockPanel>
+                        <Border Grid.Row="1" BorderBrush="#FFD6DEE7" BorderThickness="1" Background="#FFFAFBFC">
+                            <Canvas x:Name="TimelineCanvas" ClipToBounds="True" SizeChanged="TimelineCanvas_SizeChanged" />
+                        </Border>
+                    </Grid>
+
+                    <TextBlock Grid.Row="3" Margin="0,0,0,6" Foreground="#FF52606D" Text="Select a category, then an application, to drill down to window titles." />
+                    <Grid Grid.Row="4">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" /><ColumnDefinition Width="*" /><ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <GroupBox Grid.Column="0" Margin="0,0,8,0" Header="Categories">
+                            <ListBox x:Name="CategoryChartList" SelectionChanged="CategoryChartList_SelectionChanged">
+                                <ListBox.ItemTemplate>
+                                    <DataTemplate>
+                                        <StackPanel Margin="3">
+                                            <DockPanel LastChildFill="False"><TextBlock FontWeight="SemiBold" Text="{Binding Name}" /><TextBlock DockPanel.Dock="Right" Text="{Binding Summary}" /></DockPanel>
+                                            <Grid Height="8" Margin="0,4,0,0" Background="#FFE8EDF2"><Rectangle HorizontalAlignment="Left" Width="{Binding BarWidth}" Fill="#FF6B8FD6" /></Grid>
+                                            <TextBlock FontSize="11" Foreground="#FF647384" Text="{Binding Comparison}" />
+                                        </StackPanel>
+                                    </DataTemplate>
+                                </ListBox.ItemTemplate>
+                            </ListBox>
+                        </GroupBox>
+                        <GroupBox Grid.Column="1" Margin="0,0,8,0" Header="Applications">
+                            <ListBox x:Name="ApplicationChartList" SelectionChanged="ApplicationChartList_SelectionChanged">
+                                <ListBox.ItemTemplate>
+                                    <DataTemplate>
+                                        <StackPanel Margin="3">
+                                            <DockPanel LastChildFill="False"><TextBlock FontWeight="SemiBold" Text="{Binding Name}" /><TextBlock DockPanel.Dock="Right" Text="{Binding Summary}" /></DockPanel>
+                                            <Grid Height="8" Margin="0,4,0,0" Background="#FFE8EDF2"><Rectangle HorizontalAlignment="Left" Width="{Binding BarWidth}" Fill="#FF56A68B" /></Grid>
+                                            <TextBlock FontSize="11" Foreground="#FF647384" Text="{Binding Comparison}" />
+                                        </StackPanel>
+                                    </DataTemplate>
+                                </ListBox.ItemTemplate>
+                            </ListBox>
+                        </GroupBox>
+                        <GroupBox Grid.Column="2" Header="Window titles">
+                            <ListBox x:Name="WindowTitleList" />
+                        </GroupBox>
+                    </Grid>
+                </Grid>
+            </TabItem>
             <TabItem Header="Applications">
                 <Grid Margin="8">
                     <Grid.ColumnDefinitions>

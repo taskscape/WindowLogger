@@ -28,6 +28,7 @@ It records changes to the foreground window, the executable name, active or inac
 - **Portable history:** activity can be exported to or restored from the original CSV format.
 - **Flexible classification:** applications can be matched by one or more title or executable keywords and assigned to multiple categories.
 - **Actionable reports:** Excel output includes category, application, undefined-window, and daily-window views.
+- **Interactive analytics:** inspect day, week, or month timelines and drill from categories into applications and exact window titles before exporting a report.
 - **Easy refinement:** unmatched windows reveal which configuration rules should be added next.
 - **Portable deployment:** the installer includes the required .NET runtime.
 
@@ -73,6 +74,19 @@ Open the **Applications**, **Exclusions**, and **Categories** tabs in the contro
 Use **Undefined Applications** in a generated report to discover titles that need new rules. Advanced users can choose **Edit Configuration (JSON)** instead.
 
 Use the **Diagnostics** tab to find duplicate definitions, unreachable rules, include/exclude conflicts, empty categories, and applications that have never matched recorded history.
+
+### Explore the timeline and dashboard
+
+Open **Timeline & Analytics** to explore activity without generating a workbook:
+
+- switch among day, week, and month periods and navigate backward or forward;
+- distinguish active and idle blocks on the proportional timeline;
+- compare total time and every category/application with the immediately preceding equivalent period;
+- search across category names, applications, and raw window titles;
+- filter the view to active or inactive time;
+- select a category to filter applications, then select an application to inspect its window-title breakdown.
+
+For the current day, week, or month, comparisons use the same elapsed portion of the previous period rather than comparing a partial current period with a complete previous one.
 
 ### 4. Generate a report
 

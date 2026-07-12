@@ -113,6 +113,49 @@ public sealed class ActivityDatabase : IDisposable
         transaction.Commit();
     }
 
+    public IEnumerable<ActivityRecord> ReadRangeWithContext(DateTime from, DateTime to)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        if (to <= from)
+        {
+            throw new ArgumentException("The range end must be later than its start.");
+        }
+
+        using SqliteTransaction transaction = _connection.BeginTransaction();
+        using SqliteCommand command = _connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            WITH selected AS (
+                SELECT id, timestamp_ticks, window_title, status
+                FROM activity_events
+                WHERE timestamp_ticks >= $from AND timestamp_ticks < $to
+                UNION ALL
+                SELECT id, timestamp_ticks, window_title, status
+                FROM activity_events
+                WHERE id = (
+                    SELECT id FROM activity_events
+                    WHERE timestamp_ticks < $from
+                    ORDER BY timestamp_ticks DESC, id DESC
+                    LIMIT 1
+                )
+            )
+            SELECT timestamp_ticks, window_title, status
+            FROM selected
+            ORDER BY timestamp_ticks, id;
+            """;
+        command.Parameters.AddWithValue("$from", from.Ticks);
+        command.Parameters.AddWithValue("$to", to.Ticks);
+        using SqliteDataReader reader = command.ExecuteReader();
+        while (reader.Read())
+        {
+            yield return ActivityRecord.Create(
+                new DateTime(reader.GetInt64(0), DateTimeKind.Unspecified),
+                reader.GetString(1),
+                reader.GetString(2));
+        }
+        transaction.Commit();
+    }
+
     public IReadOnlyList<ActivityRecord> ReadRecent(int count)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
