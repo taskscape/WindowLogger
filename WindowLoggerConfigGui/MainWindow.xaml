@@ -32,7 +32,7 @@
             <Button Grid.Column="5" Padding="14,5" Click="ReloadConfig_Click" Content="Reload" />
         </Grid>
 
-        <TabControl x:Name="MainTabs" Grid.Row="1" Margin="12,0,12,8">
+        <TabControl x:Name="MainTabs" Grid.Row="1" Margin="12,0,12,8" SelectionChanged="MainTabs_SelectionChanged">
             <TabItem Header="Dashboard">
                 <Grid Margin="12">
                     <Grid.RowDefinitions>
@@ -156,7 +156,92 @@
                     </Grid>
                 </Grid>
             </TabItem>
-            <TabItem Header="Applications">
+            <TabItem x:Name="RuleTesterTab" Header="Rule Tester">
+                <Grid Margin="10">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="2*" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                    </Grid.RowDefinitions>
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="110" /><ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="110" /><ColumnDefinition Width="220" />
+                        </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+                        <TextBlock Margin="0,7" Text="Window title" />
+                        <TextBox x:Name="RuleWindowTitleText" Grid.Column="1" Margin="0,3,12,3" Padding="5" TextChanged="RuleTesterInput_Changed" />
+                        <TextBlock Grid.Column="2" Margin="0,7" Text="Executable" />
+                        <TextBox x:Name="RuleExecutableText" Grid.Column="3" Margin="0,3" Padding="5" TextChanged="RuleTesterInput_Changed" />
+                        <TextBlock Grid.Row="1" Margin="0,7" Text="Recent activity" />
+                        <ComboBox x:Name="RecentRuleSamples" Grid.Row="1" Grid.Column="1" Margin="0,3,12,3" SelectionChanged="RecentRuleSamples_SelectionChanged" />
+                        <StackPanel Grid.Row="1" Grid.Column="2" Grid.ColumnSpan="2" Orientation="Horizontal">
+                            <Button Margin="0,3,8,3" Padding="14,5" Click="TestRules_Click" Content="Test Rules" />
+                            <CheckBox x:Name="LiveRulePreviewCheck" Margin="0,0,8,0" VerticalAlignment="Center" IsChecked="True" Checked="LiveRulePreview_Changed" Unchecked="LiveRulePreview_Changed" Content="Live preview" />
+                            <Button Margin="0,3,8,3" Padding="12,5" Click="CreateRuleFromSample_Click" Content="Create Rule" />
+                            <Button Margin="0,3" Padding="12,5" Click="CopyCapturedValue_Click" Content="Copy Value" />
+                        </StackPanel>
+                    </Grid>
+
+                    <Border Grid.Row="1" Margin="0,10,0,8" Padding="10" Background="#FFF3F6FA" CornerRadius="4">
+                        <Grid>
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                            <StackPanel>
+                                <TextBlock x:Name="CapturedPreviewText" FontFamily="Consolas" Foreground="#FF52606D" />
+                                <TextBlock x:Name="RuleOutcomeText" Margin="0,5,0,0" FontSize="18" FontWeight="SemiBold" />
+                                <TextBlock x:Name="RuleCategoriesText" Margin="0,3,0,0" />
+                            </StackPanel>
+                            <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                                <Button x:Name="OpenMatchedApplicationButton" Margin="0,0,8,0" Padding="12,5" Click="OpenMatchedApplication_Click" Content="Open Application" />
+                                <Button x:Name="OpenMatchedCategoryButton" Padding="12,5" Click="OpenMatchedCategory_Click" Content="Open Category" />
+                            </StackPanel>
+                        </Grid>
+                    </Border>
+
+                    <Grid Grid.Row="2">
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="3*" /><ColumnDefinition Width="2*" /></Grid.ColumnDefinitions>
+                        <GroupBox Margin="0,0,8,0" Header="Evaluation trace">
+                            <ListBox x:Name="RuleTraceList">
+                                <ListBox.ItemTemplate>
+                                    <DataTemplate>
+                                        <StackPanel Margin="3">
+                                            <TextBlock FontWeight="SemiBold" Text="{Binding Heading}" />
+                                            <TextBlock Foreground="#FF52606D" Text="{Binding Patterns}" TextWrapping="Wrap" />
+                                            <TextBlock Text="{Binding Outcome}" TextWrapping="Wrap" />
+                                        </StackPanel>
+                                    </DataTemplate>
+                                </ListBox.ItemTemplate>
+                            </ListBox>
+                        </GroupBox>
+                        <GroupBox Grid.Column="1" Header="Warnings">
+                            <ListBox x:Name="RuleWarningsList" />
+                        </GroupBox>
+                    </Grid>
+
+                    <DockPanel Grid.Row="3" Margin="0,10,0,6">
+                        <TextBlock VerticalAlignment="Center" FontSize="15" FontWeight="SemiBold" Text="Saved regression cases" />
+                        <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+                            <Button Margin="0,0,6,0" Padding="12,5" Click="AddRuleTest_Click" Content="Add Current" />
+                            <Button Margin="0,0,6,0" Padding="12,5" Click="RemoveRuleTest_Click" Content="Remove" />
+                            <Button Padding="12,5" Click="RunRuleTests_Click" Content="Run All" />
+                        </StackPanel>
+                    </DockPanel>
+                    <DataGrid x:Name="RuleTestsGrid" Grid.Row="4" AutoGenerateColumns="False" CanUserAddRows="False" CellEditEnding="RuleTestsGrid_CellEditEnding">
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Width="120" Header="Name" Binding="{Binding Name}" />
+                            <DataGridTextColumn Width="2*" Header="Window title" Binding="{Binding WindowTitle}" />
+                            <DataGridTextColumn Width="120" Header="Executable" Binding="{Binding ExecutableName}" />
+                            <DataGridTextColumn Width="130" Header="Expected app" Binding="{Binding ExpectedApplication}" />
+                            <DataGridTextColumn Width="160" Header="Expected categories" Binding="{Binding ExpectedCategories}" />
+                            <DataGridCheckBoxColumn Width="80" Header="Excluded" Binding="{Binding ExpectedExcluded}" />
+                            <DataGridTextColumn Width="170" Header="Last result" IsReadOnly="True" Binding="{Binding LastResult}" />
+                        </DataGrid.Columns>
+                    </DataGrid>
+                </Grid>
+            </TabItem>
+            <TabItem x:Name="ApplicationsTab" Header="Applications">
                 <Grid Margin="8">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="2*" MinWidth="260" />
@@ -240,7 +325,7 @@
                 </Grid>
             </TabItem>
 
-            <TabItem Header="Categories">
+            <TabItem x:Name="CategoriesTab" Header="Categories">
                 <Grid Margin="8">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="2*" MinWidth="260" />

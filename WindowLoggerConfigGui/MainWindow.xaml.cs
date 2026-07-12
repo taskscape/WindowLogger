@@ -49,6 +49,9 @@ public partial class MainWindow : Window
     private DateTime _previousRangeEnd;
     private DateTime _dashboardPeriodEnd;
     private int _dashboardTimerTicks;
+    private readonly RuleEvaluationEngine _ruleEvaluationEngine = new();
+    private RuleEvaluationResult? _lastRuleEvaluation;
+    private bool _suppressRuleTesterEvents;
 
     private string LoggerExe => FindComponentPath("WindowLogger", "WindowLogger.exe");
     private string AnalyserExe => FindComponentPath("WindowAnalyser", "WindowAnalyser.exe");
@@ -87,6 +90,7 @@ public partial class MainWindow : Window
         RefreshDashboard();
         _controlCenterLoaded = true;
         LoadAnalyticsData();
+        RefreshRuleTester();
         _dashboardTimer.Start();
         if (_userSettings.StartTrackingOnLaunch && !IsLoggerRunning())
         {
@@ -830,6 +834,286 @@ public partial class MainWindow : Window
             : diagnostics.Select(item => $"[{item.Severity}] {item.Code}: {item.Message}").ToList();
     }
 
+    private void RefreshRuleTester()
+    {
+        if (!_controlCenterLoaded)
+        {
+            return;
+        }
+
+        try
+        {
+            _suppressRuleTesterEvents = true;
+            if (File.Exists(DatabaseFile))
+            {
+                using var database = new ActivityDatabase(DatabaseFile, readOnly: true);
+                RecentRuleSamples.ItemsSource = database.ReadRecent(100)
+                    .Where(record => record.Kind == ActivityRecordKind.Usage)
+                    .Select(record => record.WindowTitle)
+                    .Where(value => !string.IsNullOrWhiteSpace(value))
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .Take(50)
+                    .ToList();
+            }
+            else
+            {
+                RecentRuleSamples.ItemsSource = Array.Empty<string>();
+            }
+            RefreshRuleTestsGrid();
+        }
+        catch (Exception ex)
+        {
+            SetStatus($"Rule tester could not load recent activity: {ex.Message}");
+        }
+        finally
+        {
+            _suppressRuleTesterEvents = false;
+        }
+    }
+
+    private void MainTabs_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_controlCenterLoaded && ReferenceEquals(e.OriginalSource, MainTabs) && ReferenceEquals(MainTabs.SelectedItem, RuleTesterTab))
+        {
+            RefreshRuleTester();
+            EvaluateRulePreview();
+        }
+    }
+
+    private void RuleTesterInput_Changed(object sender, TextChangedEventArgs e)
+    {
+        if (!_suppressRuleTesterEvents && _controlCenterLoaded && LiveRulePreviewCheck.IsChecked == true)
+        {
+            EvaluateRulePreview();
+        }
+    }
+
+    private void LiveRulePreview_Changed(object sender, RoutedEventArgs e)
+    {
+        if (!_suppressRuleTesterEvents && _controlCenterLoaded && LiveRulePreviewCheck.IsChecked == true)
+        {
+            EvaluateRulePreview();
+        }
+    }
+
+    private void TestRules_Click(object sender, RoutedEventArgs e) => EvaluateRulePreview();
+
+    private void RecentRuleSamples_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_suppressRuleTesterEvents || RecentRuleSamples.SelectedItem is not string captured)
+        {
+            return;
+        }
+        (string title, string executable) = SplitCapturedValue(captured);
+        _suppressRuleTesterEvents = true;
+        RuleWindowTitleText.Text = title;
+        RuleExecutableText.Text = executable;
+        _suppressRuleTesterEvents = false;
+        EvaluateRulePreview();
+    }
+
+    private static (string WindowTitle, string Executable) SplitCapturedValue(string captured)
+    {
+        int separator = captured.LastIndexOf(" [", StringComparison.Ordinal);
+        return separator >= 0 && captured.EndsWith(']')
+            ? (captured[..separator], captured[(separator + 2)..^1])
+            : (captured, string.Empty);
+    }
+
+    private void EvaluateRulePreview()
+    {
+        string title = RuleWindowTitleText.Text;
+        string executable = RuleExecutableText.Text;
+        string captured = ActivityCapturedValue.Format(title, executable);
+        CapturedPreviewText.Text = string.IsNullOrWhiteSpace(captured)
+            ? "Enter a window title or executable to test."
+            : captured;
+        if (string.IsNullOrWhiteSpace(captured))
+        {
+            _lastRuleEvaluation = null;
+            RuleOutcomeText.Text = "No sample entered";
+            RuleCategoriesText.Text = string.Empty;
+            RuleTraceList.ItemsSource = null;
+            RuleWarningsList.ItemsSource = null;
+            OpenMatchedApplicationButton.IsEnabled = false;
+            OpenMatchedCategoryButton.IsEnabled = false;
+            return;
+        }
+
+        AppSettings previewSettings = CreatePreviewSettings();
+        _lastRuleEvaluation = _ruleEvaluationEngine.Evaluate(title, executable, previewSettings);
+        RuleOutcomeText.Text = _lastRuleEvaluation.IsExcluded
+            ? $"Excluded by rule #{_lastRuleEvaluation.MatchedExclusionIndex + 1}"
+            : _lastRuleEvaluation.MatchedApplication is null
+                ? "No application matched"
+                : $"Application: {_lastRuleEvaluation.MatchedApplication}";
+        RuleCategoriesText.Text = _lastRuleEvaluation.Categories.Count == 0
+            ? "Categories: none"
+            : $"Categories: {string.Join(", ", _lastRuleEvaluation.Categories)}";
+        RuleTraceList.ItemsSource = _lastRuleEvaluation.Trace
+            .Select(item => new RuleTraceViewModel { Trace = item })
+            .ToList();
+        RuleWarningsList.ItemsSource = _lastRuleEvaluation.Warnings.Count == 0
+            ? new[] { "No warnings for this sample." }
+            : _lastRuleEvaluation.Warnings;
+        OpenMatchedApplicationButton.IsEnabled = _lastRuleEvaluation.MatchedApplicationIndex is not null;
+        OpenMatchedCategoryButton.IsEnabled = _lastRuleEvaluation.MatchedCategoryIndices.Count > 0;
+    }
+
+    private AppSettings CreatePreviewSettings()
+    {
+        AppSettings preview = AppSettingsJson.Deserialize(AppSettingsJson.Serialize(_settings));
+        if (_loadedApplicationIndex >= 0 && _loadedApplicationIndex < preview.Applications.Count)
+        {
+            ApplicationDefinition application = preview.Applications[_loadedApplicationIndex];
+            application.Name = AppNameText.Text.Trim();
+            application.Include = ParseLines(AppIncludeText);
+            application.Exclude = ParseLines(AppExcludeText);
+        }
+        if (_loadedExclusionIndex >= 0 && _loadedExclusionIndex < preview.Exclusions.Count)
+        {
+            preview.Exclusions[_loadedExclusionIndex].Include = ParseLines(ExclusionIncludeText);
+        }
+        if (_loadedCategoryIndex >= 0 && _loadedCategoryIndex < preview.Categories.Count)
+        {
+            CategoryDefinition category = preview.Categories[_loadedCategoryIndex];
+            category.Name = CategoryNameText.Text.Trim();
+            category.IncludeApplications = ParseLines(CategoryIncludeText);
+            category.ExcludeApplications = ParseLines(CategoryExcludeText);
+        }
+        return preview;
+    }
+
+    private void OpenMatchedApplication_Click(object sender, RoutedEventArgs e)
+    {
+        if (_lastRuleEvaluation?.MatchedApplicationIndex is not int index)
+        {
+            return;
+        }
+        MainTabs.SelectedItem = ApplicationsTab;
+        ApplicationsList.SelectedIndex = index;
+        ApplicationsList.ScrollIntoView(ApplicationsList.SelectedItem);
+    }
+
+    private void OpenMatchedCategory_Click(object sender, RoutedEventArgs e)
+    {
+        if (_lastRuleEvaluation?.MatchedCategoryIndices.FirstOrDefault(-1) is not int index || index < 0)
+        {
+            return;
+        }
+        MainTabs.SelectedItem = CategoriesTab;
+        CategoriesList.SelectedIndex = index;
+        CategoriesList.ScrollIntoView(CategoriesList.SelectedItem);
+    }
+
+    private void CreateRuleFromSample_Click(object sender, RoutedEventArgs e)
+    {
+        string pattern = !string.IsNullOrWhiteSpace(RuleExecutableText.Text)
+            ? RuleExecutableText.Text.Trim()
+            : RuleWindowTitleText.Text.Trim();
+        if (string.IsNullOrWhiteSpace(pattern))
+        {
+            ShowWarning("Enter or select a sample before creating a rule.");
+            return;
+        }
+        string name = !string.IsNullOrWhiteSpace(RuleExecutableText.Text)
+            ? Path.GetFileNameWithoutExtension(RuleExecutableText.Text.Trim())
+            : "New Application";
+        _settings.Applications.Add(new ApplicationDefinition { Name = name, Include = [pattern] });
+        MarkDirty();
+        _loadedApplicationIndex = -1;
+        RefreshApplicationsList(_settings.Applications.Count - 1);
+        MainTabs.SelectedItem = ApplicationsTab;
+    }
+
+    private void CopyCapturedValue_Click(object sender, RoutedEventArgs e)
+    {
+        string captured = ActivityCapturedValue.Format(RuleWindowTitleText.Text, RuleExecutableText.Text);
+        if (!string.IsNullOrWhiteSpace(captured))
+        {
+            Clipboard.SetText(captured);
+            SetStatus("Captured value copied to the clipboard.");
+        }
+    }
+
+    private void AddRuleTest_Click(object sender, RoutedEventArgs e)
+    {
+        EvaluateRulePreview();
+        if (_lastRuleEvaluation is null)
+        {
+            return;
+        }
+        _settings.RuleTests.Add(new RuleTestCase
+        {
+            Name = $"Test {_settings.RuleTests.Count + 1}",
+            WindowTitle = RuleWindowTitleText.Text,
+            ExecutableName = RuleExecutableText.Text,
+            ExpectedApplication = _lastRuleEvaluation.MatchedApplication ?? string.Empty,
+            ExpectedCategories = string.Join(", ", _lastRuleEvaluation.Categories),
+            ExpectedExcluded = _lastRuleEvaluation.IsExcluded,
+            LastResult = "Not run"
+        });
+        MarkDirty();
+        RefreshRuleTestsGrid();
+        RuleTestsGrid.SelectedIndex = _settings.RuleTests.Count - 1;
+    }
+
+    private void RemoveRuleTest_Click(object sender, RoutedEventArgs e)
+    {
+        int index = RuleTestsGrid.SelectedIndex;
+        if (index < 0 || index >= _settings.RuleTests.Count)
+        {
+            return;
+        }
+        _settings.RuleTests.RemoveAt(index);
+        MarkDirty();
+        RefreshRuleTestsGrid();
+    }
+
+    private void RunRuleTests_Click(object sender, RoutedEventArgs e)
+    {
+        RuleTestsGrid.CommitEdit(DataGridEditingUnit.Cell, true);
+        RuleTestsGrid.CommitEdit(DataGridEditingUnit.Row, true);
+        int failures = EvaluateRuleTests(CreatePreviewSettings());
+        RefreshRuleTestsGrid();
+        SetStatus(failures == 0
+            ? $"All {_settings.RuleTests.Count} rule tests passed."
+            : $"{failures} of {_settings.RuleTests.Count} rule tests failed.");
+    }
+
+    private int EvaluateRuleTests(AppSettings settings)
+    {
+        int failures = 0;
+        foreach (RuleTestCase test in _settings.RuleTests)
+        {
+            RuleEvaluationResult actual = _ruleEvaluationEngine.Evaluate(
+                test.WindowTitle, test.ExecutableName, settings);
+            string[] expectedCategories = test.ExpectedCategories
+                .Split([',', ';'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            bool categoriesMatch = new HashSet<string>(expectedCategories, StringComparer.OrdinalIgnoreCase)
+                .SetEquals(actual.Categories);
+            bool passed = test.ExpectedExcluded == actual.IsExcluded &&
+                string.Equals(test.ExpectedApplication, actual.MatchedApplication ?? string.Empty,
+                    StringComparison.OrdinalIgnoreCase) && categoriesMatch;
+            test.LastResult = passed
+                ? "Passed"
+                : $"Failed: {(actual.IsExcluded ? "excluded" : actual.MatchedApplication ?? "unmatched")} / {string.Join(", ", actual.Categories)}";
+            if (!passed)
+            {
+                failures++;
+            }
+        }
+        return failures;
+    }
+
+    private void RefreshRuleTestsGrid()
+    {
+        RuleTestsGrid.ItemsSource = null;
+        RuleTestsGrid.ItemsSource = _settings.RuleTests;
+    }
+
+    private void RuleTestsGrid_CellEditEnding(object sender, DataGridCellEditEndingEventArgs e) => MarkDirty();
+
     private void OpenConfig_Click(object sender, RoutedEventArgs e)
     {
         if (!ConfirmDiscardChanges())
@@ -912,6 +1196,7 @@ public partial class MainWindow : Window
             UpdatePathText();
             SetStatus($"Loaded {path}");
             LoadAnalyticsData();
+            RefreshRuleTester();
         }
         catch (Exception ex)
         {
@@ -1285,6 +1570,10 @@ public partial class MainWindow : Window
         if (!_suppressEditorEvents)
         {
             MarkDirty();
+            if (_controlCenterLoaded && LiveRulePreviewCheck.IsChecked == true)
+            {
+                EvaluateRulePreview();
+            }
         }
     }
 
@@ -1389,6 +1678,18 @@ public partial class MainWindow : Window
         {
             ShowWarning("Every category requires a name and at least one included application.");
             return false;
+        }
+
+        RuleTestsGrid.CommitEdit(DataGridEditingUnit.Cell, true);
+        RuleTestsGrid.CommitEdit(DataGridEditingUnit.Row, true);
+        int failedTests = EvaluateRuleTests(_settings);
+        RefreshRuleTestsGrid();
+        if (failedTests > 0)
+        {
+            MessageBoxResult result = MessageBox.Show(this,
+                $"{failedTests} of {_settings.RuleTests.Count} saved rule tests failed. Save anyway?",
+                "Rule Test Failures", MessageBoxButton.YesNo, MessageBoxImage.Warning);
+            return result == MessageBoxResult.Yes;
         }
 
         return true;

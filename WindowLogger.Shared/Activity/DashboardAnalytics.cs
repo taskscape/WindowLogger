@@ -38,6 +38,7 @@ public sealed class DashboardSnapshot
 
 public static class DashboardAnalytics
 {
+    private static readonly RuleEvaluationEngine RuleEvaluator = new();
     public static DashboardSnapshot Build(
         IEnumerable<ActivityRecord> currentRecords,
         IEnumerable<ActivityRecord> previousRecords,
@@ -75,6 +76,7 @@ public static class DashboardAnalytics
         DateTime rangeEnd)
     {
         var blocks = new List<TimelineBlock>();
+        var evaluations = new Dictionary<string, RuleEvaluationResult>(StringComparer.Ordinal);
         ActivityRecord? currentUsage = null;
         foreach (ActivityRecord record in records)
         {
@@ -84,16 +86,16 @@ public static class DashboardAnalytics
                     currentUsage = null;
                     break;
                 case ActivityRecordKind.SessionEnd:
-                    AddBlock(currentUsage, record.Timestamp, settings, rangeStart, rangeEnd, blocks);
+                    AddBlock(currentUsage, record.Timestamp, settings, rangeStart, rangeEnd, blocks, evaluations);
                     currentUsage = null;
                     break;
                 case ActivityRecordKind.Usage:
-                    AddBlock(currentUsage, record.Timestamp, settings, rangeStart, rangeEnd, blocks);
+                    AddBlock(currentUsage, record.Timestamp, settings, rangeStart, rangeEnd, blocks, evaluations);
                     currentUsage = record;
                     break;
             }
         }
-        AddBlock(currentUsage, rangeEnd, settings, rangeStart, rangeEnd, blocks);
+        AddBlock(currentUsage, rangeEnd, settings, rangeStart, rangeEnd, blocks, evaluations);
         return blocks;
     }
 
@@ -103,9 +105,10 @@ public static class DashboardAnalytics
         AppSettings settings,
         DateTime rangeStart,
         DateTime rangeEnd,
-        ICollection<TimelineBlock> blocks)
+        ICollection<TimelineBlock> blocks,
+        IDictionary<string, RuleEvaluationResult> evaluations)
     {
-        if (usage is null || IsExcluded(usage.WindowTitle, settings))
+        if (usage is null)
         {
             return;
         }
@@ -116,13 +119,17 @@ public static class DashboardAnalytics
             return;
         }
 
-        string application = MatchApplication(usage.WindowTitle, settings) ?? "Unmatched";
-        string[] categories = settings.Categories
-            .Where(category => category.IncludeApplications.Contains(application, StringComparer.OrdinalIgnoreCase) &&
-                               !category.ExcludeApplications.Contains(application, StringComparer.OrdinalIgnoreCase))
-            .Select(category => category.Name)
-            .DefaultIfEmpty("Uncategorized")
-            .ToArray();
+        if (!evaluations.TryGetValue(usage.WindowTitle, out RuleEvaluationResult? evaluation))
+        {
+            evaluation = RuleEvaluator.EvaluateCapturedValue(usage.WindowTitle, settings);
+            evaluations.Add(usage.WindowTitle, evaluation);
+        }
+        if (evaluation.IsExcluded)
+        {
+            return;
+        }
+        string application = evaluation.MatchedApplication ?? "Unmatched";
+        string[] categories = evaluation.Categories.DefaultIfEmpty("Uncategorized").ToArray();
         blocks.Add(new TimelineBlock(start, end, usage.Status, application, usage.WindowTitle, categories));
     }
 
@@ -167,13 +174,4 @@ public static class DashboardAnalytics
             .ToList();
     }
 
-    private static bool IsExcluded(string title, AppSettings settings) => settings.Exclusions.Any(exclusion =>
-        exclusion.Include.Count > 0 &&
-        exclusion.Include.All(pattern => title.Contains(pattern, StringComparison.OrdinalIgnoreCase)));
-
-    private static string? MatchApplication(string title, AppSettings settings) => settings.Applications
-        .FirstOrDefault(application =>
-            application.Include.Count > 0 &&
-            application.Include.All(pattern => title.Contains(pattern, StringComparison.OrdinalIgnoreCase)) &&
-            !application.Exclude.Any(pattern => title.Contains(pattern, StringComparison.OrdinalIgnoreCase)))?.Name;
 }

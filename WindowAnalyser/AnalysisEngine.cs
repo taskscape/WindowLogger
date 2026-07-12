@@ -9,6 +9,8 @@ public sealed class AnalysisEngine
     private readonly Dictionary<UsageKey, TimeSpan> _categories = [];
     private readonly Dictionary<UsageKey, TimeSpan> _undefinedApplications = [];
     private readonly Dictionary<DailyWindowKey, TimeSpan> _windows = [];
+    private readonly Dictionary<string, RuleEvaluationResult> _evaluations = new(StringComparer.Ordinal);
+    private readonly RuleEvaluationEngine _ruleEvaluator = new();
 
     public AnalysisEngine(AppSettings settings)
     {
@@ -22,6 +24,7 @@ public sealed class AnalysisEngine
         _categories.Clear();
         _undefinedApplications.Clear();
         _windows.Clear();
+        _evaluations.Clear();
 
         LogEvent? currentUsage = null;
         DateTime? previousTimestamp = null;
@@ -77,7 +80,8 @@ public sealed class AnalysisEngine
 
     private void AddInterval(LogEvent source, DateTime end)
     {
-        if (end <= source.Timestamp || IsExcluded(source.WindowTitle))
+        RuleEvaluationResult evaluation = Evaluate(source.WindowTitle);
+        if (end <= source.Timestamp || evaluation.IsExcluded)
         {
             return;
         }
@@ -88,19 +92,23 @@ public sealed class AnalysisEngine
             DateTime segmentEnd = segmentStart.Date < end.Date
                 ? segmentStart.Date.AddDays(1)
                 : end;
-            AddSegment(source, segmentStart, segmentEnd - segmentStart);
+            AddSegment(source, evaluation, segmentStart, segmentEnd - segmentStart);
             segmentStart = segmentEnd;
         }
     }
 
-    private void AddSegment(LogEvent source, DateTime segmentStart, TimeSpan duration)
+    private void AddSegment(
+        LogEvent source,
+        RuleEvaluationResult evaluation,
+        DateTime segmentStart,
+        TimeSpan duration)
     {
         Add(_windows, new DailyWindowKey(
             segmentStart.Date,
             ExtractAppName(source.WindowTitle),
             source.Status), duration);
 
-        string? applicationName = MatchApplication(source.WindowTitle);
+        string? applicationName = evaluation.MatchedApplication;
         if (applicationName is null)
         {
             Add(_undefinedApplications, new UsageKey(source.WindowTitle, source.Status), duration);
@@ -108,37 +116,21 @@ public sealed class AnalysisEngine
         }
 
         Add(_applications, new UsageKey(applicationName, source.Status), duration);
-        foreach (string category in GetCategories(applicationName))
+        foreach (string category in evaluation.Categories)
         {
             Add(_categories, new UsageKey(category, source.Status), duration);
         }
     }
 
-    private bool IsExcluded(string title) => _settings.Exclusions.Any(exclusion =>
-        exclusion.Include.Count > 0 &&
-        exclusion.Include.All(phrase => title.Contains(phrase, StringComparison.OrdinalIgnoreCase)));
-
-    private string? MatchApplication(string title)
+    private RuleEvaluationResult Evaluate(string title)
     {
-        foreach (ApplicationDefinition application in _settings.Applications)
+        if (!_evaluations.TryGetValue(title, out RuleEvaluationResult? evaluation))
         {
-            bool included = application.Include.Count > 0 &&
-                application.Include.All(phrase => title.Contains(phrase, StringComparison.OrdinalIgnoreCase));
-            bool excluded = application.Exclude.Any(phrase =>
-                title.Contains(phrase, StringComparison.OrdinalIgnoreCase));
-            if (included && !excluded)
-            {
-                return application.Name;
-            }
+            evaluation = _ruleEvaluator.EvaluateCapturedValue(title, _settings);
+            _evaluations.Add(title, evaluation);
         }
-        return null;
+        return evaluation;
     }
-
-    private IEnumerable<string> GetCategories(string applicationName) => _settings.Categories
-        .Where(category =>
-            category.IncludeApplications.Any(name => name.Equals(applicationName, StringComparison.OrdinalIgnoreCase)) &&
-            !category.ExcludeApplications.Any(name => name.Equals(applicationName, StringComparison.OrdinalIgnoreCase)))
-        .Select(category => category.Name);
 
     private static string ExtractAppName(string windowTitle) => windowTitle.Split('-', '—').Last().Trim();
 

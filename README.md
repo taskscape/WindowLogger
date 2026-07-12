@@ -75,6 +75,21 @@ Use **Undefined Applications** in a generated report to discover titles that nee
 
 Use the **Diagnostics** tab to find duplicate definitions, unreachable rules, include/exclude conflicts, empty categories, and applications that have never matched recorded history.
 
+### Test and preview rules
+
+Use **Rule Tester** before saving classification changes:
+
+- enter a window title and executable separately, or select a recently recorded captured value;
+- preview the exact `Window title [executable.exe]` value used by reports;
+- see whether a global exclusion wins, which first matching application is selected, and every assigned category;
+- inspect an ordered trace showing each matched or failed include/exclude pattern and any shadowed application rules;
+- jump directly to the matched application or category, create a starter application rule from the sample, or copy the captured value;
+- test the current unsaved editor draft, including reordered and newly added rules.
+
+The tester also stores editable regression cases in the optional `RuleTests` section of `appsettings.json`. Each case records its sample and expected exclusion, application, and comma-separated categories. **Run All** updates pass/fail results, and saving configuration warns before continuing if any stored expectation fails.
+
+The analyser, interactive timeline, and Rule Tester use the same shared evaluation engine, so preview precedence and matching behavior are identical to generated reports.
+
 ### Explore the timeline and dashboard
 
 Open **Timeline & Analytics** to explore activity without generating a workbook:

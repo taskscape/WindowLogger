@@ -73,13 +73,15 @@ public static class ConfigurationDiagnostics
         if (observedWindowTitles is not null)
         {
             string[] titles = observedWindowTitles.Where(title => !string.IsNullOrWhiteSpace(title)).Distinct().ToArray();
+            var evaluator = new RuleEvaluationEngine();
+            HashSet<string> matchedApplications = titles
+                .Select(title => evaluator.EvaluateCapturedValue(title, settings).MatchedApplication)
+                .OfType<string>()
+                .Where(name => !string.IsNullOrWhiteSpace(name))
+                .ToHashSet(Comparer);
             foreach (ApplicationDefinition application in settings.Applications)
             {
-                bool matched = titles.Any(title =>
-                    application.Include.Count > 0 &&
-                    application.Include.All(pattern => title.Contains(pattern, StringComparison.OrdinalIgnoreCase)) &&
-                    !application.Exclude.Any(pattern => title.Contains(pattern, StringComparison.OrdinalIgnoreCase)));
-                if (!matched)
+                if (!matchedApplications.Contains(application.Name))
                 {
                     diagnostics.Add(new("Info", "NEVER_MATCHED",
                         $"Application '{application.Name}' has never matched the available activity history."));

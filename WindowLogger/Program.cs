@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text;
 using WindowLogger.Shared.Activity;
+using WindowLogger.Shared.Configuration;
 using WindowLogger.Shared.Settings;
 
 namespace WindowLogger;
@@ -195,8 +196,8 @@ internal static class Program
     private static void WriteLog(string windowTitle, string executableName, string status)
     {
         string displayName = _storeWindowTitles
-            ? $"{windowTitle} [{executableName}]"
-            : $"[{executableName}]";
+            ? ActivityCapturedValue.Format(windowTitle, executableName)
+            : ActivityCapturedValue.Format(string.Empty, executableName);
         WriteRecord(displayName, status);
     }
 
