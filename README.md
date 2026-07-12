@@ -21,7 +21,7 @@ It records changes to the foreground window, the executable name, active or inac
 ## Benefits
 
 - **Local and private:** no cloud account or external telemetry is required.
-- **Low-friction collection:** the tray controller starts, pauses, resumes, and stops logging in the background.
+- **Unified control:** one WPF control center starts, pauses, resumes, and stops tracking while exposing recent activity, reports, rules, diagnostics, and settings.
 - **Privacy on demand:** pause tracking during sensitive or personal activity without terminating the logger.
 - **Accurate session accounting:** shutdown and restart boundaries prevent offline time from being counted as usage.
 - **Reliable long-term storage:** SQLite provides indexed date queries, atomic writes, and consistent reports while collection continues.
@@ -35,9 +35,9 @@ It records changes to the foreground window, the executable name, active or inac
 
 | Component | Purpose |
 | --- | --- |
-| `WindowLoggerTray.exe` | WPF tray controller and recommended entry point. |
+| `WindowLoggerConfigGui.exe` | Unified WPF control center and recommended entry point. |
+| `WindowLoggerTray.exe` | Optional legacy notification-area controller. |
 | `WindowLogger.exe` | Background foreground-window and inactivity collector. |
-| `WindowLoggerConfigGui.exe` | WPF editor for application, exclusion, and category rules. |
 | `WindowAnalyser.exe` | SQLite/CSV analyser, portability utility, and Excel report generator. |
 | `appsettings.json` | Classification and exclusion rules used by the analyser. |
 
@@ -50,12 +50,12 @@ Download `WindowLogger-Setup-<version>.exe` from [GitHub Releases](https://githu
 The installer:
 
 - installs the self-contained application under `%LOCALAPPDATA%\Programs\WindowLogger`;
-- optionally starts the tray controller whenever the current user signs in;
-- offers to launch the tray controller when setup finishes.
+- optionally starts the control center whenever the current user signs in;
+- offers to launch the control center when setup finishes.
 
 ### 2. Start collecting activity
 
-Find the WindowLogger icon in the Windows notification area, right-click it, and choose **Start Logging**. The logger runs without a visible console and writes activity atomically to `WindowLogger.db`.
+Open **WindowLogger Control Center** and use the Dashboard's **Start**, **Pause/Resume**, and **Stop** controls. The dashboard shows current status and recent activity while the background logger writes atomically to `WindowLogger.db`.
 
 Choose **Pause Logging** before sensitive or personal activity. While paused, the logger process stays available but does not inspect or record foreground windows. Choose **Resume Logging** to continue collection. Pause and resume create separate session boundaries, so the paused interval is excluded from reports.
 
@@ -63,7 +63,7 @@ Choose **Stop Logging** before moving or backing up the database itself. Normal 
 
 ### 3. Configure application and category rules
 
-From the tray menu, choose **Edit Configuration (GUI)**.
+Open the **Applications**, **Exclusions**, and **Categories** tabs in the control center.
 
 - **Applications** map window-title or executable keywords to a friendly application name.
 - **Exclusions** remove matching windows from all calculations.
@@ -72,9 +72,11 @@ From the tray menu, choose **Edit Configuration (GUI)**.
 
 Use **Undefined Applications** in a generated report to discover titles that need new rules. Advanced users can choose **Edit Configuration (JSON)** instead.
 
+Use the **Diagnostics** tab to find duplicate definitions, unreachable rules, include/exclude conflicts, empty categories, and applications that have never matched recorded history.
+
 ### 4. Generate a report
 
-Choose **Generate Report & Open** from the tray menu. WindowLogger reads a consistent SQLite snapshot—even while collection continues—creates `Report.xlsx`, and opens it with the system's associated spreadsheet application.
+Choose **Generate Report** on the Dashboard. WindowLogger reads a consistent SQLite snapshot—even while collection continues—creates a timestamped workbook in the configured report folder, and opens it with the system's associated spreadsheet application.
 
 The workbook contains:
 
@@ -96,6 +98,7 @@ For an installer-based deployment, the application files and writable data are s
 ```text
 %LOCALAPPDATA%\Programs\WindowLogger\
 ├── WindowLogger.db
+├── WindowLogger.settings.json
 ├── appsettings.json
 ├── Report.xlsx
 └── application executables and runtime files
@@ -104,6 +107,7 @@ For an installer-based deployment, the application files and writable data are s
 | File | Contents |
 | --- | --- |
 | `WindowLogger.db` | Indexed SQLite history containing foreground-window, status, and session events. |
+| `WindowLogger.settings.json` | User-editable tracking, privacy, retention, report-folder, recovery, and startup preferences. |
 | `appsettings.json` | Application matching, exclusions, and categories. |
 | `Report.xlsx` | Most recently generated analysis workbook. |
 
@@ -114,7 +118,7 @@ Requirements: Windows and the .NET 10 SDK.
 ```powershell
 dotnet build WindowLogger.sln --configuration Release
 dotnet test WindowLogger.sln --configuration Release
-dotnet run --project WindowLoggerTray\WindowLoggerTray.csproj
+dotnet run --project WindowLoggerConfigGui\WindowLoggerConfigGui.csproj
 ```
 
 To build the installer locally, install Inno Setup 6 and run:
@@ -129,7 +133,7 @@ See [Installer/README.md](Installer/README.md) for release-tag and packaging det
 
 ## Manual Usage (Command Line)
 
-If you prefer to run components manually without the Tray Controller:
+If you prefer to run components manually without the Control Center:
 
 **Running the Logger:**
 ```bash
@@ -142,6 +146,12 @@ dotnet WindowAnalyser.dll WindowLogger.db Report.xlsx
 ```
 
 The logger automatically imports a legacy `WindowLogger.csv` when it creates an empty database, then renames the source to `WindowLogger.migrated-<timestamp>.csv` so it cannot be imported twice.
+
+If a crash or forced termination leaves a session open, the next logger start inserts a conservative session end capped by `CrashRecoveryMaxMinutes`. This prevents the unknown time until restart from being attributed to the last active window.
+
+### Tracking, privacy, and retention settings
+
+Use the **Privacy & Settings** tab to configure inactivity and polling intervals, title storage, initial paused state, retention days, crash-recovery cap, report folder, automatic tracking, and launch-at-sign-in. Saving settings applies retention immediately and restarts an owned logger so timing and privacy changes take effect safely.
 
 ### Portable CSV format
 

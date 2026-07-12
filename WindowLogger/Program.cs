@@ -2,14 +2,17 @@ using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text;
 using WindowLogger.Shared.Activity;
+using WindowLogger.Shared.Settings;
 
 namespace WindowLogger;
 
 internal static class Program
 {
     private const string DatabaseFileName = "WindowLogger.db";
-    private static readonly TimeSpan PollInterval = TimeSpan.FromMilliseconds(500);
-    private static readonly TimeSpan InactivityThreshold = TimeSpan.FromMinutes(1);
+    private const string SingleInstanceMutexName = @"Local\WindowLogger-Collector-D78EF332-EED0-4B29-B475-6D74299D71E5";
+    private static TimeSpan _pollInterval = TimeSpan.FromMilliseconds(500);
+    private static TimeSpan _inactivityThreshold = TimeSpan.FromMinutes(1);
+    private static bool _storeWindowTitles = true;
 
     private static string _lastWindowTitle = string.Empty;
     private static string _lastExecutableName = string.Empty;
@@ -33,6 +36,13 @@ internal static class Program
 
     private static void Main(string[] args)
     {
+        using var singleInstanceMutex = new Mutex(true, SingleInstanceMutexName, out bool createdNew);
+        if (!createdNew)
+        {
+            Console.Error.WriteLine("Another WindowLogger collector is already running.");
+            return;
+        }
+
         Console.WriteLine("Active window logger started.");
 
         string logPath = args.Length > 0 && !args[0].StartsWith("--", StringComparison.Ordinal)
@@ -47,8 +57,25 @@ internal static class Program
 
         _database = new ActivityDatabase(logPath);
         MigrateLegacyCsv(logPath);
+        UserSettings settings = LoadUserSettings(args);
+        _pollInterval = TimeSpan.FromMilliseconds(settings.PollingIntervalMilliseconds);
+        _inactivityThreshold = TimeSpan.FromSeconds(settings.InactivityThresholdSeconds);
+        _storeWindowTitles = settings.StoreWindowTitles;
+        ActivityRecord? recovered = _database.RecoverIncompleteSession(
+            DateTime.Now,
+            TimeSpan.FromMinutes(settings.CrashRecoveryMaxMinutes));
+        if (recovered is not null)
+        {
+            Console.WriteLine($"Recovered incomplete session at {recovered.Timestamp:yyyy-MM-dd HH:mm:ss}.");
+        }
+        if (settings.RetentionDays > 0)
+        {
+            _database.DeleteBefore(DateTime.Now.AddDays(-settings.RetentionDays));
+        }
+
         using EventWaitHandle? pauseEvent = OpenPauseEvent(args);
-        if (pauseEvent?.WaitOne(0) != true)
+        bool initiallyPaused = pauseEvent?.WaitOne(0) == true || (pauseEvent is null && settings.StartTrackingPaused);
+        if (!initiallyPaused)
         {
             StartSession();
         }
@@ -60,7 +87,7 @@ internal static class Program
             cancellation.Cancel();
         };
 
-        Task pollingTask = PollAsync(pauseEvent, cancellation.Token);
+        Task pollingTask = PollAsync(pauseEvent, initiallyPaused, cancellation.Token);
 
         try
         {
@@ -85,6 +112,16 @@ internal static class Program
                 _database = null;
             }
         }
+    }
+
+    private static UserSettings LoadUserSettings(string[] args)
+    {
+        int optionIndex = Array.FindIndex(args, arg =>
+            string.Equals(arg, "--settings", StringComparison.OrdinalIgnoreCase));
+        string path = optionIndex >= 0 && optionIndex + 1 < args.Length
+            ? args[optionIndex + 1]
+            : Path.Combine(AppContext.BaseDirectory, "WindowLogger.settings.json");
+        return UserSettingsStore.Load(path);
     }
 
     private static EventWaitHandle? OpenPauseEvent(string[] args)
@@ -115,16 +152,19 @@ internal static class Program
         Task.WhenAny(inputTask, cancellationTask).GetAwaiter().GetResult();
     }
 
-    private static async Task PollAsync(EventWaitHandle? pauseEvent, CancellationToken cancellationToken)
+    private static async Task PollAsync(
+        EventWaitHandle? pauseEvent,
+        bool initiallyPaused,
+        CancellationToken cancellationToken)
     {
-        using var timer = new PeriodicTimer(PollInterval);
-        bool wasPaused = pauseEvent?.WaitOne(0) == true;
+        using var timer = new PeriodicTimer(_pollInterval);
+        bool wasPaused = initiallyPaused;
 
         do
         {
             try
             {
-                bool isPaused = pauseEvent?.WaitOne(0) == true;
+                bool isPaused = pauseEvent?.WaitOne(0) ?? initiallyPaused;
                 if (isPaused)
                 {
                     if (!wasPaused)
@@ -154,7 +194,9 @@ internal static class Program
 
     private static void WriteLog(string windowTitle, string executableName, string status)
     {
-        string displayName = $"{windowTitle} [{executableName}]";
+        string displayName = _storeWindowTitles
+            ? $"{windowTitle} [{executableName}]"
+            : $"[{executableName}]";
         WriteRecord(displayName, status);
     }
 
@@ -220,7 +262,7 @@ internal static class Program
 
     private static void PollActiveWindow()
     {
-        bool isInactive = UserActivityDetector.IsUserInactive(InactivityThreshold);
+        bool isInactive = UserActivityDetector.IsUserInactive(_inactivityThreshold);
 
         if (isInactive != _inactive)
         {
@@ -258,7 +300,7 @@ internal static class Program
 
     private static void CaptureCurrentWindowSnapshot()
     {
-        _inactive = UserActivityDetector.IsUserInactive(InactivityThreshold);
+        _inactive = UserActivityDetector.IsUserInactive(_inactivityThreshold);
         if (!TryGetActiveWindow(out WindowInfo currentWindow))
         {
             _lastWindowTitle = string.Empty;

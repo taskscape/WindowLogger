@@ -1,7 +1,7 @@
 #define MyAppName "WindowLogger"
 #define MyAppPublisher "Taskscape"
 #define MyAppURL "https://github.com/taskscape/WindowLogger"
-#define MyAppExeName "WindowLoggerTray.exe"
+#define MyAppExeName "WindowLoggerConfigGui.exe"
 
 #ifndef MyAppVersion
 #define MyAppVersion "1.0.0"

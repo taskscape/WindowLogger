@@ -1,12 +1,18 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Threading;
 using Microsoft.Win32;
+using WindowLogger.Shared.Activity;
 using WindowLogger.Shared.Configuration;
+using WindowLogger.Shared.Settings;
 
 namespace WindowLoggerConfigGui;
 
@@ -22,6 +28,18 @@ public partial class MainWindow : Window
     private int _loadedApplicationIndex = -1;
     private int _loadedExclusionIndex = -1;
     private int _loadedCategoryIndex = -1;
+    private readonly DispatcherTimer _dashboardTimer = new() { Interval = TimeSpan.FromSeconds(2) };
+    private UserSettings _userSettings = new();
+    private Process? _loggerProcess;
+    private EventWaitHandle? _loggerStopEvent;
+    private EventWaitHandle? _loggerPauseEvent;
+    private bool _ownsLogger;
+    private bool _isPaused;
+
+    private string LoggerExe => FindComponentPath("WindowLogger", "WindowLogger.exe");
+    private string AnalyserExe => FindComponentPath("WindowAnalyser", "WindowAnalyser.exe");
+    private string DatabaseFile => Path.Combine(Path.GetDirectoryName(LoggerExe) ?? AppContext.BaseDirectory, "WindowLogger.db");
+    private string UserSettingsFile => Path.Combine(Path.GetDirectoryName(LoggerExe) ?? AppContext.BaseDirectory, "WindowLogger.settings.json");
 
     public MainWindow(string? initialPath = null)
     {
@@ -35,8 +53,22 @@ public partial class MainWindow : Window
         {
             editor.TextChanged += EditorField_TextChanged;
         }
-        Loaded += (_, _) => TryLoadDefaultConfig();
+        Loaded += MainWindow_Loaded;
         Closing += MainWindow_Closing;
+        _dashboardTimer.Tick += (_, _) => RefreshDashboard();
+    }
+
+    private void MainWindow_Loaded(object sender, RoutedEventArgs e)
+    {
+        TryLoadDefaultConfig();
+        LoadUserSettings();
+        DetectExistingLogger();
+        RefreshDashboard();
+        _dashboardTimer.Start();
+        if (_userSettings.StartTrackingOnLaunch && !IsLoggerRunning())
+        {
+            StartTracking();
+        }
     }
 
     private void TryLoadDefaultConfig()
@@ -67,6 +99,364 @@ public partial class MainWindow : Window
         RefreshAllLists();
         UpdatePathText();
         SetStatus("New configuration (no file loaded).");
+    }
+
+    private static string FindComponentPath(string projectName, string fileName)
+    {
+        string localPath = Path.Combine(AppContext.BaseDirectory, fileName);
+        if (File.Exists(localPath))
+        {
+            return localPath;
+        }
+
+        string configuration = AppContext.BaseDirectory.Contains("Release", StringComparison.OrdinalIgnoreCase)
+            ? "Release"
+            : "Debug";
+        string solutionDirectory = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string buildDirectory = Path.Combine(solutionDirectory, projectName, "bin", configuration);
+        return Directory.Exists(buildDirectory)
+            ? Directory.EnumerateFiles(buildDirectory, fileName, SearchOption.AllDirectories)
+                .OrderByDescending(File.GetLastWriteTimeUtc)
+                .FirstOrDefault() ?? localPath
+            : localPath;
+    }
+
+    private void LoadUserSettings()
+    {
+        try
+        {
+            bool settingsFileExists = File.Exists(UserSettingsFile);
+            _userSettings = UserSettingsStore.Load(UserSettingsFile);
+            if (!settingsFileExists)
+            {
+                _userSettings.LaunchAtWindowsStartup = IsWindowsStartupEnabled();
+                UserSettingsStore.Save(UserSettingsFile, _userSettings);
+            }
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(this, $"User settings could not be loaded; defaults will be used.\n{ex.Message}",
+                "Settings", MessageBoxButton.OK, MessageBoxImage.Warning);
+            _userSettings = new UserSettings();
+        }
+
+        InactivitySecondsText.Text = _userSettings.InactivityThresholdSeconds.ToString();
+        PollingMillisecondsText.Text = _userSettings.PollingIntervalMilliseconds.ToString();
+        RetentionDaysText.Text = _userSettings.RetentionDays.ToString();
+        CrashRecoveryMinutesText.Text = _userSettings.CrashRecoveryMaxMinutes.ToString();
+        ReportFolderText.Text = string.IsNullOrWhiteSpace(_userSettings.ReportFolder)
+            ? AppContext.BaseDirectory
+            : _userSettings.ReportFolder;
+        StoreWindowTitlesCheck.IsChecked = _userSettings.StoreWindowTitles;
+        StartPausedCheck.IsChecked = _userSettings.StartTrackingPaused;
+        StartTrackingOnLaunchCheck.IsChecked = _userSettings.StartTrackingOnLaunch;
+        LaunchAtStartupCheck.IsChecked = _userSettings.LaunchAtWindowsStartup;
+    }
+
+    private async void SaveUserSettings_Click(object sender, RoutedEventArgs e)
+    {
+        if (!int.TryParse(InactivitySecondsText.Text, out int inactivitySeconds) ||
+            !int.TryParse(PollingMillisecondsText.Text, out int pollingMilliseconds) ||
+            !int.TryParse(RetentionDaysText.Text, out int retentionDays) ||
+            !int.TryParse(CrashRecoveryMinutesText.Text, out int recoveryMinutes))
+        {
+            ShowWarning("Timing and retention settings must be whole numbers.");
+            return;
+        }
+
+        bool wasRunning = IsLoggerRunning() && _ownsLogger;
+        bool wasPaused = _isPaused;
+        _userSettings = new UserSettings
+        {
+            InactivityThresholdSeconds = inactivitySeconds,
+            PollingIntervalMilliseconds = pollingMilliseconds,
+            RetentionDays = retentionDays,
+            CrashRecoveryMaxMinutes = recoveryMinutes,
+            ReportFolder = ReportFolderText.Text.Trim(),
+            StoreWindowTitles = StoreWindowTitlesCheck.IsChecked == true,
+            StartTrackingPaused = StartPausedCheck.IsChecked == true,
+            StartTrackingOnLaunch = StartTrackingOnLaunchCheck.IsChecked == true,
+            LaunchAtWindowsStartup = LaunchAtStartupCheck.IsChecked == true
+        };
+        _userSettings.Normalize();
+
+        try
+        {
+            UserSettingsStore.Save(UserSettingsFile, _userSettings);
+            ApplyWindowsStartupPreference(_userSettings.LaunchAtWindowsStartup);
+            if (File.Exists(DatabaseFile) && _userSettings.RetentionDays > 0)
+            {
+                using var database = new ActivityDatabase(DatabaseFile);
+                database.DeleteBefore(DateTime.Now.AddDays(-_userSettings.RetentionDays));
+            }
+
+            if (wasRunning)
+            {
+                await StopTrackingAsync();
+                StartTracking(startPaused: wasPaused);
+            }
+            SetStatus($"Settings saved to {UserSettingsFile}");
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(this, ex.Message, "Settings Error", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+    }
+
+    private static void ApplyWindowsStartupPreference(bool enabled)
+    {
+        using RegistryKey key = Registry.CurrentUser.CreateSubKey(@"Software\Microsoft\Windows\CurrentVersion\Run");
+        if (enabled)
+        {
+            key.SetValue("WindowLogger", $"\"{Environment.ProcessPath}\"");
+        }
+        else
+        {
+            key.DeleteValue("WindowLogger", throwOnMissingValue: false);
+        }
+    }
+
+    private static bool IsWindowsStartupEnabled()
+    {
+        using RegistryKey? key = Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Run");
+        return key?.GetValue("WindowLogger") is string value && !string.IsNullOrWhiteSpace(value);
+    }
+
+    private void DetectExistingLogger()
+    {
+        Process[] existing = Process.GetProcessesByName(Path.GetFileNameWithoutExtension(LoggerExe));
+        if (existing.Length > 0)
+        {
+            _loggerProcess = existing[0];
+            _ownsLogger = false;
+        }
+        foreach (Process process in existing.Skip(1))
+        {
+            process.Dispose();
+        }
+    }
+
+    private void StartTracking_Click(object sender, RoutedEventArgs e) => StartTracking();
+
+    private void StartTracking(bool? startPaused = null)
+    {
+        if (IsLoggerRunning())
+        {
+            return;
+        }
+        if (!File.Exists(LoggerExe))
+        {
+            MessageBox.Show(this, $"Logger not found: {LoggerExe}", "Tracking", MessageBoxButton.OK, MessageBoxImage.Error);
+            return;
+        }
+
+        try
+        {
+            DisposeLoggerHandles();
+            string stopEventName = $"Local\\WindowLogger-Control-{Guid.NewGuid():N}";
+            string pauseEventName = $"Local\\WindowLogger-Pause-Control-{Guid.NewGuid():N}";
+            bool paused = startPaused ?? _userSettings.StartTrackingPaused;
+            _loggerStopEvent = new EventWaitHandle(false, EventResetMode.ManualReset, stopEventName);
+            _loggerPauseEvent = new EventWaitHandle(paused, EventResetMode.ManualReset, pauseEventName);
+            var startInfo = new ProcessStartInfo(LoggerExe)
+            {
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                WorkingDirectory = Path.GetDirectoryName(LoggerExe)
+            };
+            foreach (string argument in new[]
+                     {
+                         DatabaseFile, "--stop-event", stopEventName, "--pause-event", pauseEventName,
+                         "--settings", UserSettingsFile
+                     })
+            {
+                startInfo.ArgumentList.Add(argument);
+            }
+            _loggerProcess = Process.Start(startInfo)
+                ?? throw new InvalidOperationException("The logger process could not be started.");
+            _ownsLogger = true;
+            _isPaused = paused;
+            RefreshDashboard();
+        }
+        catch (Exception ex)
+        {
+            DisposeLoggerHandles();
+            MessageBox.Show(this, ex.Message, "Tracking Error", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+    }
+
+    private void PauseTracking_Click(object sender, RoutedEventArgs e)
+    {
+        if (!_ownsLogger || !IsLoggerRunning() || _loggerPauseEvent is null)
+        {
+            return;
+        }
+
+        if (_isPaused)
+        {
+            _loggerPauseEvent.Reset();
+            _isPaused = false;
+        }
+        else
+        {
+            _loggerPauseEvent.Set();
+            _isPaused = true;
+        }
+        RefreshDashboard();
+    }
+
+    private async void StopTracking_Click(object sender, RoutedEventArgs e) => await StopTrackingAsync();
+
+    private async Task StopTrackingAsync()
+    {
+        if (!_ownsLogger || _loggerProcess is null)
+        {
+            return;
+        }
+        try
+        {
+            _loggerStopEvent?.Set();
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(4));
+            try
+            {
+                await _loggerProcess.WaitForExitAsync(timeout.Token);
+            }
+            catch (OperationCanceledException)
+            {
+                _loggerProcess.Kill(entireProcessTree: true);
+                await _loggerProcess.WaitForExitAsync();
+            }
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(this, ex.Message, "Tracking Error", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+        finally
+        {
+            DisposeLoggerHandles();
+            RefreshDashboard();
+        }
+    }
+
+    private bool IsLoggerRunning()
+    {
+        try
+        {
+            return _loggerProcess is { HasExited: false };
+        }
+        catch (InvalidOperationException)
+        {
+            return false;
+        }
+    }
+
+    private void DisposeLoggerHandles()
+    {
+        _loggerProcess?.Dispose();
+        _loggerProcess = null;
+        _loggerStopEvent?.Dispose();
+        _loggerStopEvent = null;
+        _loggerPauseEvent?.Dispose();
+        _loggerPauseEvent = null;
+        _ownsLogger = false;
+        _isPaused = false;
+    }
+
+    private void RefreshDashboard_Click(object sender, RoutedEventArgs e) => RefreshDashboard();
+
+    private void RefreshDashboard()
+    {
+        bool running = IsLoggerRunning();
+        TrackingStatusText.Text = !running ? "Stopped" : !_ownsLogger ? "Running (external)" : _isPaused ? "Paused" : "Tracking";
+        StartTrackingButton.IsEnabled = !running;
+        PauseTrackingButton.IsEnabled = running && _ownsLogger;
+        PauseTrackingButton.Content = _isPaused ? "Resume" : "Pause";
+        StopTrackingButton.IsEnabled = running && _ownsLogger;
+
+        try
+        {
+            if (!File.Exists(DatabaseFile))
+            {
+                RecentActivityList.ItemsSource = Array.Empty<string>();
+            }
+            else
+            {
+                using var database = new ActivityDatabase(DatabaseFile, readOnly: true);
+                RecentActivityList.ItemsSource = database.ReadRecent(30)
+                    .Select(record => $"{record.Timestamp:yyyy-MM-dd HH:mm:ss}  {record.Status,-12} {record.WindowTitle}")
+                    .ToList();
+            }
+        }
+        catch (Exception ex)
+        {
+            RecentActivityList.ItemsSource = new[] { $"Activity unavailable: {ex.Message}" };
+        }
+    }
+
+    private async void GenerateReport_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            if (!File.Exists(DatabaseFile) || !File.Exists(AnalyserExe))
+            {
+                ShowWarning("Activity data or analyser executable is not available yet.");
+                return;
+            }
+            string reportFolder = string.IsNullOrWhiteSpace(_userSettings.ReportFolder)
+                ? AppContext.BaseDirectory
+                : _userSettings.ReportFolder;
+            Directory.CreateDirectory(reportFolder);
+            string reportPath = Path.Combine(reportFolder, $"WindowLogger-Report-{DateTime.Now:yyyyMMdd-HHmmss}.xlsx");
+            var startInfo = new ProcessStartInfo(AnalyserExe)
+            {
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                RedirectStandardError = true,
+                WorkingDirectory = Path.GetDirectoryName(AnalyserExe)
+            };
+            startInfo.ArgumentList.Add(DatabaseFile);
+            startInfo.ArgumentList.Add(reportPath);
+            using Process process = Process.Start(startInfo)
+                ?? throw new InvalidOperationException("The analyser could not be started.");
+            string error = await process.StandardError.ReadToEndAsync();
+            await process.WaitForExitAsync();
+            if (process.ExitCode != 0)
+            {
+                throw new InvalidOperationException(error);
+            }
+            Process.Start(new ProcessStartInfo(reportPath) { UseShellExecute = true });
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(this, ex.Message, "Report Error", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+    }
+
+    private void RunDiagnostics_Click(object sender, RoutedEventArgs e)
+    {
+        CommitPendingEdits();
+        IEnumerable<string>? titles = null;
+        try
+        {
+            if (File.Exists(DatabaseFile))
+            {
+                using var database = new ActivityDatabase(DatabaseFile, readOnly: true);
+                titles = database.Read()
+                    .Where(record => record.Kind == ActivityRecordKind.Usage)
+                    .Select(record => record.WindowTitle)
+                    .Distinct()
+                    .ToArray();
+            }
+        }
+        catch (Exception ex)
+        {
+            SetStatus($"Diagnostics could not read history: {ex.Message}");
+        }
+
+        IReadOnlyList<RuleDiagnostic> diagnostics = ConfigurationDiagnostics.Analyze(_settings, titles);
+        DiagnosticsList.ItemsSource = diagnostics.Count == 0
+            ? new[] { "No rule problems detected." }
+            : diagnostics.Select(item => $"[{item.Severity}] {item.Code}: {item.Message}").ToList();
     }
 
     private void OpenConfig_Click(object sender, RoutedEventArgs e)
@@ -679,6 +1069,14 @@ public partial class MainWindow : Window
         if (!ConfirmDiscardChanges())
         {
             e.Cancel = true;
+            return;
         }
+
+        _dashboardTimer.Stop();
+        if (_ownsLogger && IsLoggerRunning())
+        {
+            _loggerStopEvent?.Set();
+        }
+        DisposeLoggerHandles();
     }
 }

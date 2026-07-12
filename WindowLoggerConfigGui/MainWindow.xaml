@@ -1,7 +1,7 @@
 <Window x:Class="WindowLoggerConfigGui.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Window Logger Configuration"
+        Title="WindowLogger Control Center"
         Width="1080"
         Height="720"
         MinWidth="980"
@@ -32,7 +32,32 @@
             <Button Grid.Column="5" Padding="14,5" Click="ReloadConfig_Click" Content="Reload" />
         </Grid>
 
-        <TabControl Grid.Row="1" Margin="12,0,12,8">
+        <TabControl x:Name="MainTabs" Grid.Row="1" Margin="12,0,12,8">
+            <TabItem Header="Dashboard">
+                <Grid Margin="12">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                    </Grid.RowDefinitions>
+                    <Border Padding="14" Background="#FFF3F6FA" CornerRadius="4">
+                        <StackPanel>
+                            <TextBlock FontSize="14" Foreground="#FF52606D" Text="TRACKING STATUS" />
+                            <TextBlock x:Name="TrackingStatusText" Margin="0,4,0,0" FontSize="26" FontWeight="SemiBold" Text="Stopped" />
+                        </StackPanel>
+                    </Border>
+                    <StackPanel Grid.Row="1" Margin="0,14,0,14" Orientation="Horizontal">
+                        <Button x:Name="StartTrackingButton" Margin="0,0,8,0" Padding="22,8" Click="StartTracking_Click" Content="Start" />
+                        <Button x:Name="PauseTrackingButton" Margin="0,0,8,0" Padding="22,8" Click="PauseTracking_Click" Content="Pause" />
+                        <Button x:Name="StopTrackingButton" Margin="0,0,8,0" Padding="22,8" Click="StopTracking_Click" Content="Stop" />
+                        <Button Margin="16,0,8,0" Padding="22,8" Click="GenerateReport_Click" Content="Generate Report" />
+                        <Button Padding="22,8" Click="RefreshDashboard_Click" Content="Refresh" />
+                    </StackPanel>
+                    <TextBlock Grid.Row="2" Margin="0,0,0,8" FontSize="16" FontWeight="SemiBold" Text="Recent activity" />
+                    <ListBox x:Name="RecentActivityList" Grid.Row="3" FontFamily="Consolas" />
+                </Grid>
+            </TabItem>
             <TabItem Header="Applications">
                 <Grid Margin="8">
                     <Grid.ColumnDefinitions>
@@ -157,6 +182,50 @@
                         </StackPanel>
                     </Grid>
                 </Grid>
+            </TabItem>
+            <TabItem Header="Diagnostics">
+                <Grid Margin="12">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                    </Grid.RowDefinitions>
+                    <StackPanel Margin="0,0,0,10" Orientation="Horizontal">
+                        <Button Padding="16,6" Click="RunDiagnostics_Click" Content="Run Diagnostics" />
+                        <TextBlock Margin="12,0,0,0" VerticalAlignment="Center" Text="Checks rule ordering, duplicates, conflicts, categories, and observed activity." />
+                    </StackPanel>
+                    <ListBox x:Name="DiagnosticsList" Grid.Row="1" />
+                </Grid>
+            </TabItem>
+            <TabItem Header="Privacy &amp; Settings">
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <Grid Margin="16" MaxWidth="760" HorizontalAlignment="Left">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="260" />
+                            <ColumnDefinition Width="220" />
+                        </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
+                        <TextBlock Grid.Row="0" Margin="0,7" Text="Inactivity threshold (seconds)" />
+                        <TextBox x:Name="InactivitySecondsText" Grid.Row="0" Grid.Column="1" Margin="0,4" />
+                        <TextBlock Grid.Row="1" Margin="0,7" Text="Polling interval (milliseconds)" />
+                        <TextBox x:Name="PollingMillisecondsText" Grid.Row="1" Grid.Column="1" Margin="0,4" />
+                        <TextBlock Grid.Row="2" Margin="0,7" Text="Retention period (days, 0 = unlimited)" />
+                        <TextBox x:Name="RetentionDaysText" Grid.Row="2" Grid.Column="1" Margin="0,4" />
+                        <TextBlock Grid.Row="3" Margin="0,7" Text="Crash recovery cap (minutes)" />
+                        <TextBox x:Name="CrashRecoveryMinutesText" Grid.Row="3" Grid.Column="1" Margin="0,4" />
+                        <TextBlock Grid.Row="4" Margin="0,7" Text="Report folder" />
+                        <TextBox x:Name="ReportFolderText" Grid.Row="4" Grid.Column="1" Margin="0,4" />
+                        <CheckBox x:Name="StoreWindowTitlesCheck" Grid.Row="5" Grid.ColumnSpan="2" Margin="0,8" Content="Store foreground window titles (disable for privacy)" />
+                        <CheckBox x:Name="StartPausedCheck" Grid.Row="6" Grid.ColumnSpan="2" Margin="0,8" Content="Start tracking paused" />
+                        <CheckBox x:Name="StartTrackingOnLaunchCheck" Grid.Row="7" Grid.ColumnSpan="2" Margin="0,8" Content="Start tracking when the control center opens" />
+                        <CheckBox x:Name="LaunchAtStartupCheck" Grid.Row="8" Grid.ColumnSpan="2" Margin="0,8" Content="Launch WindowLogger Control Center when I sign in" />
+                        <Button Grid.Row="9" Grid.ColumnSpan="2" Margin="0,16,0,0" Padding="18,7" HorizontalAlignment="Left" Click="SaveUserSettings_Click" Content="Save Privacy &amp; Settings" />
+                    </Grid>
+                </ScrollViewer>
             </TabItem>
         </TabControl>
 

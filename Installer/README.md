@@ -27,10 +27,10 @@ The resulting installer is written to `Installer\Output\WindowLogger-Setup-1.2.3
 ## Installer behavior
 
 - Installs into `%LOCALAPPDATA%\Programs\WindowLogger` by default.
-- Deploys the logger, analyser, WPF configuration editor, WPF tray controller, default configuration, and all self-contained runtime dependencies.
+- Deploys the logger, analyser, unified WPF control center, optional WPF tray controller, default configuration, and all self-contained runtime dependencies.
 - Offers an unchecked **Start WindowLogger when I sign in to Windows** task.
 - Adds or removes the current user's `HKCU\Software\Microsoft\Windows\CurrentVersion\Run\WindowLogger` value according to that selection, including during upgrades.
-- Offers to launch `WindowLoggerTray.exe` when setup finishes.
+- Offers to launch `WindowLoggerConfigGui.exe` (the WindowLogger Control Center) when setup finishes.
 - Requires no administrator privileges or separately installed .NET runtime.
 
 ## GitHub releases

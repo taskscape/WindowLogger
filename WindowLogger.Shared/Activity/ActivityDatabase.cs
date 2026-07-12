@@ -113,6 +113,96 @@ public sealed class ActivityDatabase : IDisposable
         transaction.Commit();
     }
 
+    public IReadOnlyList<ActivityRecord> ReadRecent(int count)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(count);
+        using SqliteCommand command = _connection.CreateCommand();
+        command.CommandText = """
+            SELECT timestamp_ticks, window_title, status
+            FROM activity_events
+            ORDER BY timestamp_ticks DESC, id DESC
+            LIMIT $count;
+            """;
+        command.Parameters.AddWithValue("$count", count);
+        using SqliteDataReader reader = command.ExecuteReader();
+        var records = new List<ActivityRecord>();
+        while (reader.Read())
+        {
+            records.Add(ActivityRecord.Create(
+                new DateTime(reader.GetInt64(0), DateTimeKind.Unspecified),
+                reader.GetString(1),
+                reader.GetString(2)));
+        }
+        return records;
+    }
+
+    public int DeleteBefore(DateTime cutoff)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        using SqliteCommand command = _connection.CreateCommand();
+        command.CommandText = "DELETE FROM activity_events WHERE timestamp_ticks < $cutoff;";
+        command.Parameters.AddWithValue("$cutoff", cutoff.Ticks);
+        return command.ExecuteNonQuery();
+    }
+
+    public ActivityRecord? RecoverIncompleteSession(DateTime recoveryTime, TimeSpan maximumUncertainInterval)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        if (maximumUncertainInterval <= TimeSpan.Zero)
+        {
+            throw new ArgumentOutOfRangeException(nameof(maximumUncertainInterval));
+        }
+        using SqliteTransaction transaction = _connection.BeginTransaction();
+        using SqliteCommand boundaryCommand = _connection.CreateCommand();
+        boundaryCommand.Transaction = transaction;
+        boundaryCommand.CommandText = """
+            SELECT id, timestamp_ticks, status
+            FROM activity_events
+            WHERE status IN ('SessionStart', 'SessionEnd')
+            ORDER BY timestamp_ticks DESC, id DESC
+            LIMIT 1;
+            """;
+
+        long boundaryId;
+        long boundaryTicks;
+        using (SqliteDataReader boundaryReader = boundaryCommand.ExecuteReader())
+        {
+            if (!boundaryReader.Read() || boundaryReader.GetString(2) == "SessionEnd")
+            {
+                transaction.Commit();
+                return null;
+            }
+            boundaryId = boundaryReader.GetInt64(0);
+            boundaryTicks = boundaryReader.GetInt64(1);
+        }
+
+        using SqliteCommand latestCommand = _connection.CreateCommand();
+        latestCommand.Transaction = transaction;
+        latestCommand.CommandText = """
+            SELECT timestamp_ticks
+            FROM activity_events
+            WHERE id >= $boundaryId
+            ORDER BY timestamp_ticks DESC, id DESC
+            LIMIT 1;
+            """;
+        latestCommand.Parameters.AddWithValue("$boundaryId", boundaryId);
+        long latestTicks = (long)(latestCommand.ExecuteScalar() ?? boundaryTicks);
+        DateTime latest = new(latestTicks, DateTimeKind.Unspecified);
+        DateTime conservativeEnd = latest + maximumUncertainInterval;
+        if (conservativeEnd > recoveryTime)
+        {
+            conservativeEnd = recoveryTime;
+        }
+
+        ActivityRecord recovered = ActivityRecord.Create(conservativeEnd, string.Empty, "SessionEnd");
+        using SqliteCommand insertCommand = CreateInsertCommand(transaction);
+        BindRecord(insertCommand, recovered);
+        insertCommand.ExecuteNonQuery();
+        transaction.Commit();
+        return recovered;
+    }
+
     public void Dispose()
     {
         if (_disposed)

@@ -95,6 +95,36 @@ public sealed class ActivityDatabaseTests
     }
 
     [Test]
+    public void Incomplete_session_is_closed_with_a_conservative_recovery_cap()
+    {
+        string path = CreateDatabasePath();
+        try
+        {
+            DateTime start = new(2026, 7, 10, 9, 0, 0);
+            using var database = new ActivityDatabase(path);
+            database.Append(ActivityRecord.Create(start, string.Empty, "SessionStart"));
+            database.Append(ActivityRecord.Create(start.AddMinutes(2), "Work [test.exe]", "Active"));
+
+            ActivityRecord? recovered = database.RecoverIncompleteSession(
+                start.AddHours(8), TimeSpan.FromMinutes(5));
+            ActivityRecord? secondRecovery = database.RecoverIncompleteSession(
+                start.AddHours(9), TimeSpan.FromMinutes(5));
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(recovered, Is.Not.Null);
+                Assert.That(recovered!.Timestamp, Is.EqualTo(start.AddMinutes(7)));
+                Assert.That(recovered.Kind, Is.EqualTo(ActivityRecordKind.SessionEnd));
+                Assert.That(secondRecovery, Is.Null);
+            });
+        }
+        finally
+        {
+            DeleteDatabase(path);
+        }
+    }
+
+    [Test]
     public void Csv_export_and_import_preserve_quoted_titles_and_statuses()
     {
         string csvPath = Path.Combine(Path.GetTempPath(), $"WindowLogger-{Guid.NewGuid():N}.csv");

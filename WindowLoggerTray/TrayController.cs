@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.IO;
 using System.Windows.Controls;
+using WindowLogger.Shared.Settings;
 using Wpf = System.Windows;
 
 namespace WindowLoggerTray;
@@ -27,8 +28,17 @@ public sealed class TrayController : IDisposable
     private string AnalyserExe => FindComponentPath("WindowAnalyser", "WindowAnalyser.exe");
     private string ConfigGuiExe => FindComponentPath("WindowLoggerConfigGui", "WindowLoggerConfigGui.exe");
     private string DatabaseFile => Path.Combine(Path.GetDirectoryName(LoggerExe) ?? string.Empty, "WindowLogger.db");
+    private string UserSettingsFile => Path.Combine(Path.GetDirectoryName(LoggerExe) ?? string.Empty, "WindowLogger.settings.json");
     private string ConfigFile => Path.Combine(Path.GetDirectoryName(AnalyserExe) ?? string.Empty, "appsettings.json");
-    private string ReportFile => Path.Combine(AppContext.BaseDirectory, "Report.xlsx");
+    private string ReportFile
+    {
+        get
+        {
+            UserSettings settings = UserSettingsStore.Load(UserSettingsFile);
+            string folder = string.IsNullOrWhiteSpace(settings.ReportFolder) ? AppContext.BaseDirectory : settings.ReportFolder;
+            return Path.Combine(folder, "Report.xlsx");
+        }
+    }
 
     public TrayController()
     {
@@ -102,7 +112,7 @@ public sealed class TrayController : IDisposable
         return localPath;
     }
 
-    private void StartLogger(bool startPaused = false)
+    private void StartLogger(bool? startPaused = null)
     {
         if (IsLoggerRunning())
         {
@@ -119,10 +129,12 @@ public sealed class TrayController : IDisposable
         {
             DisposeLoggerHandles();
 
+            UserSettings settings = UserSettingsStore.Load(UserSettingsFile);
+            bool paused = startPaused ?? settings.StartTrackingPaused;
             string stopEventName = $"Local\\WindowLogger-{Guid.NewGuid():N}";
             string pauseEventName = $"Local\\WindowLogger-Pause-{Guid.NewGuid():N}";
             _loggerStopEvent = new EventWaitHandle(false, EventResetMode.ManualReset, stopEventName);
-            _loggerPauseEvent = new EventWaitHandle(startPaused, EventResetMode.ManualReset, pauseEventName);
+            _loggerPauseEvent = new EventWaitHandle(paused, EventResetMode.ManualReset, pauseEventName);
 
             var startInfo = new ProcessStartInfo
             {
@@ -136,12 +148,14 @@ public sealed class TrayController : IDisposable
             startInfo.ArgumentList.Add(stopEventName);
             startInfo.ArgumentList.Add("--pause-event");
             startInfo.ArgumentList.Add(pauseEventName);
+            startInfo.ArgumentList.Add("--settings");
+            startInfo.ArgumentList.Add(UserSettingsFile);
 
             _loggerProcess = Process.Start(startInfo)
                 ?? throw new InvalidOperationException("The logger process could not be created.");
             _ownsLoggerProcess = true;
-            _isLoggerPaused = startPaused;
-            _trayIcon.ShowBalloon("Window Logger", startPaused ? "Logging started in paused mode." : "Logging started.");
+            _isLoggerPaused = paused;
+            _trayIcon.ShowBalloon("Window Logger", paused ? "Logging started in paused mode." : "Logging started.");
         }
         catch (Exception ex)
         {
@@ -245,6 +259,7 @@ public sealed class TrayController : IDisposable
             {
                 File.Delete(ReportFile);
             }
+            Directory.CreateDirectory(Path.GetDirectoryName(ReportFile) ?? AppContext.BaseDirectory);
 
             var startInfo = new ProcessStartInfo
             {
