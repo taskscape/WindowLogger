@@ -1,153 +1,125 @@
-# Window Logger
+# WindowLogger
 
-Window Logger is a productivity tracking tool that monitors active windows and analyzes time spent across applications and categories. The system consists of a suite of .NET applications (Logger, Analyser, Tray Controller, Config GUI) that work together to provide insights into computer usage patterns.
+WindowLogger is a local Windows activity-tracking tool that records which application window is in the foreground and turns that history into an Excel usage report. It is intended for people who want an evidence-based view of how they spend time across projects, tools, communication, administration, and personal activities.
 
----
+All collection and analysis happens on the local computer. WindowLogger does not upload activity data to a server.
 
-## Overview
+## Purpose
 
-The system runs discretely in the system tray and consists of four components:
+WindowLogger answers practical questions such as:
 
-2. **WindowLogger** - A background process that monitors and logs active windows.
-3. **WindowLoggerTray** (Controller) - A WPF system tray app that manages the background logger and provides quick access to actions.
-4. **WindowLoggerConfigGui** - A WPF visual editor for configuration rules.
-5. **WindowAnalyser** - Analyzes logs and generates detailed Excel reports.
+- Which applications consumed most of the day?
+- How much time was active work versus idle time?
+- How was time divided between development, communication, document work, or custom business categories?
+- Which window titles are not yet covered by the current classification rules?
+- How did application usage differ by day?
 
+It records changes to the foreground window, the executable name, active or inactive status, and explicit logger-session boundaries. The analyser then applies configurable matching rules and produces an `.xlsx` workbook.
 
----
+> Window titles can contain document names, website titles, customer names, or other sensitive text. Review and protect `WindowLogger.csv` as you would any other personal activity record.
 
-## Quick Start
+## Benefits
 
-### Install a release
+- **Local and private:** no cloud account or external telemetry is required.
+- **Low-friction collection:** the tray controller starts, pauses, resumes, and stops logging in the background.
+- **Privacy on demand:** pause tracking during sensitive or personal activity without terminating the logger.
+- **Accurate session accounting:** shutdown and restart boundaries prevent offline time from being counted as usage.
+- **Flexible classification:** applications can be matched by one or more title or executable keywords and assigned to multiple categories.
+- **Actionable reports:** Excel output includes category, application, undefined-window, and daily-window views.
+- **Easy refinement:** unmatched windows reveal which configuration rules should be added next.
+- **Portable deployment:** the installer includes the required .NET runtime.
 
-Download `WindowLogger-Setup-<version>.exe` from the project’s GitHub Releases page. The installer deploys the self-contained applications to `%LOCALAPPDATA%\Programs\WindowLogger`, can register the tray controller to start when the current user signs in, and offers to launch it when installation completes.
+## Components
 
-Installer maintainers can build the package locally with:
+| Component | Purpose |
+| --- | --- |
+| `WindowLoggerTray.exe` | WPF tray controller and recommended entry point. |
+| `WindowLogger.exe` | Background foreground-window and inactivity collector. |
+| `WindowLoggerConfigGui.exe` | WPF editor for application, exclusion, and category rules. |
+| `WindowAnalyser.exe` | Streaming CSV analyser and Excel report generator. |
+| `appsettings.json` | Classification and exclusion rules used by the analyser. |
+
+## Install and use
+
+### 1. Install WindowLogger
+
+Download `WindowLogger-Setup-<version>.exe` from [GitHub Releases](https://github.com/taskscape/WindowLogger/releases) and run it.
+
+The installer:
+
+- installs the self-contained application under `%LOCALAPPDATA%\Programs\WindowLogger`;
+- optionally starts the tray controller whenever the current user signs in;
+- offers to launch the tray controller when setup finishes.
+
+### 2. Start collecting activity
+
+Find the WindowLogger icon in the Windows notification area, right-click it, and choose **Start Logging**. The logger runs without a visible console and appends activity to `WindowLogger.csv`.
+
+Choose **Pause Logging** before sensitive or personal activity. While paused, the logger process stays available but does not inspect or record foreground windows. Choose **Resume Logging** to continue collection. Pause and resume create separate session boundaries, so the paused interval is excluded from reports.
+
+Choose **Stop Logging** before moving or manually editing the CSV. Normal shutdown records a session boundary so time between logger runs is not included in reports.
+
+### 3. Configure application and category rules
+
+From the tray menu, choose **Edit Configuration (GUI)**.
+
+- **Applications** map window-title or executable keywords to a friendly application name.
+- **Exclusions** remove matching windows from all calculations.
+- **Categories** group named applications into broader areas such as Development, Communication, or Finance.
+- Application rules are evaluated in order, so place specific rules before broad fallback rules.
+
+Use **Undefined Applications** in a generated report to discover titles that need new rules. Advanced users can choose **Edit Configuration (JSON)** instead.
+
+### 4. Generate a report
+
+Choose **Generate Report & Open** from the tray menu. WindowLogger analyses the current CSV, creates `Report.xlsx`, and opens it with the system's associated spreadsheet application.
+
+The workbook contains:
+
+1. **Categories** — total active and inactive time per configured category.
+2. **Applications** — total time per matched application.
+3. **Undefined Applications** — unmatched titles for configuration refinement.
+4. **Windows** — daily window-level totals.
+
+### 5. Manage collected data
+
+Choose **Clear Collected Data** to stop the logger, remove the current CSV, and restart collection if it was previously active. If tracking was paused, it restarts in the paused state. This action cannot be undone.
+
+## Data locations
+
+For an installer-based deployment, the application files and writable data are stored together by default:
+
+```text
+%LOCALAPPDATA%\Programs\WindowLogger\
+├── WindowLogger.csv
+├── appsettings.json
+├── Report.xlsx
+└── application executables and runtime files
+```
+
+| File | Contents |
+| --- | --- |
+| `WindowLogger.csv` | Timestamped foreground-window, status, and session events. |
+| `appsettings.json` | Application matching, exclusions, and categories. |
+| `Report.xlsx` | Most recently generated analysis workbook. |
+
+## Build from source
+
+Requirements: Windows and the .NET 10 SDK.
+
+```powershell
+dotnet build WindowLogger.sln --configuration Release
+dotnet test WindowLogger.sln --configuration Release
+dotnet run --project WindowLoggerTray\WindowLoggerTray.csproj
+```
+
+To build the installer locally, install Inno Setup 6 and run:
 
 ```powershell
 .\Installer\Build-Installer.ps1 -Version 1.2.3
 ```
 
-See [`Installer/README.md`](Installer/README.md) for prerequisites and release-tag instructions.
-
-### Step 1: Build 
-
-Build both applications using Visual Studio or the .NET CLI:
-
-```bash
-dotnet build WindowLogger.sln
-```
-
-Run the regression test suite with:
-
-```bash
-dotnet test WindowLogger.sln --configuration Release
-```
-
-### Step 2: Run the Logger
-
-Navigate to the WindowLogger output directory and run:
-
-```bash
-cd WindowLogger/bin/Debug/net10.0-windows
-WindowLogger.exe
-```
-
-Or from the project directory:
-
-```bash
-cd WindowLogger
-dotnet run
-```
-
-**What happens:**
-
-- The logger starts monitoring your active windows every 500ms
-- Console displays each window change
-- Data is saved to `WindowLogger.csv` in the same directory as the executable
-- Press **Enter** to stop logging
-
-### Alternative Step 2: Run the Controller and run the Logger
-
-Navigate to the Tray application's output directory and launch the executable.
-
-```powershell
-cd WindowLoggerTray/bin/Debug/net10.0-windows
-.\WindowLoggerTray.exe
-```
-*(Note: The path might vary slightly depending on your configuration, e.g., Release mode)*
-
-Or from the project directory:
-
-```bash
-cd WindowLoggerTray
-dotnet run
-```
-
-**What happens:**
-- An icon appears in your System Tray (near the clock).
-- Right-click the icon to control the application.
-
----
-
-## Using the Controller
-
-Once **WindowLoggerTray** is running, right-click the tray icon to access the menu:
-
-- **Start Logging**: Launches `WindowLogger.exe` in the background (hidden).
-- **Stop Logging**: Safely stops the background logger process.
-- **Generate Report & Open**: Runs analysis and opens the Excel report automatically.
-- **Edit Configuration**:
-    - **GUI**: Opens the visual editor (`WindowLoggerConfigGui.exe`).
-    - **JSON**: Opens the raw `appsettings.json` file.
-- **Clear Collected Data**: Deletes the current log file to start fresh.
-
-### Step 3: Analyze the Data
-
-Navigate to the WindowAnalyser output directory and run:
-
-```bash
-cd WindowAnalyser/bin/Debug/net10.0
-WindowAnalyser.exe WindowLogger.csv output.xlsx
-```
-
-Or from the project directory:
-
-```bash
-cd WindowAnalyser
-dotnet run -- <path-to-csv> <output-xlsx-path>
-```
-
-**Example:**
-
-```bash
-dotnet run -- ../../WindowLogger/bin/Debug/net10.0-windows/WindowLogger.csv weekly_report.xlsx
-```
-
-### Alternatively - Use the Controller Application
-
-You can generate the `Report.xlsx` directly from the **WindowLoggerTray** by clicking "Generate Report & Open".
-
----
-
-## Data Storage
-
-### Log File
-
-- **File Name:** WindowLogger.csv
-- **Location:** Created in the same directory where the application runs.
-- **Format:** Timestamp,Window Title [Executable],Status
-
-### Configuration File
-
-- **File Name:** appsettings.json
-- **Location:** Created in the same directory. Defines how windows are grouped into Applications and Categories.
-
-### Report.xlsx
-
-WindowLoggerTray generates a **Report.xlsx** file when you use the `Generate Report & Open` option. It uses data from the **WindowLogger.csv** file.
-
-
+See [Installer/README.md](Installer/README.md) for release-tag and packaging details.
 
 ---
 
@@ -175,17 +147,21 @@ Timestamp,Window Title [Executable],Status
 **Example Content:**
 
 ```csv
+2026-01-18 09:15:00,,SessionStart
 2026-01-18 09:15:30,Visual Studio 2022 [devenv.exe],Active
 2026-01-18 09:20:45,Google Chrome - GitHub [chrome.exe],Active
 2026-01-18 09:25:10,Slack - Development Team [slack.exe],Active
 2026-01-18 09:30:00,Slack - Development Team [slack.exe],Inactive
 2026-01-18 09:31:15,Visual Studio 2022 [devenv.exe],Active
+2026-01-18 10:00:00,,SessionEnd
 ```
 
 **Status Values:**
 
 - `Active` - User is actively using the computer
 - `Inactive` - No user input detected for 1+ minute (configurable)
+- `SessionStart` - A new logger process began; no time is attributed across this boundary
+- `SessionEnd` - The logger stopped normally and closes the final usage interval
 
 ### Configuration File Location
 
@@ -194,7 +170,7 @@ Timestamp,Window Title [Executable],Status
 
 The configuration file must be in:
 
-```test
+```text
 WindowAnalyser/bin/Debug/net10.0/appsettings.json
 ```
 
@@ -238,7 +214,7 @@ Time Spent (Hours) | Time Spent (Minutes)
 Edit constants in `WindowLogger/Program.cs`:
 
 ```csharp
-private const double MinutesToInactive = 1;  // Inactivity threshold in minutes
+private static readonly TimeSpan InactivityThreshold = TimeSpan.FromMinutes(1);
 ```
 
 Change the polling interval (default: 500ms):
