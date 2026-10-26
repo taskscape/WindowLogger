@@ -204,8 +204,8 @@ Timestamp,Window Title [Executable],Status
 
 **Status Values:**
 
-- `Active` - User is actively using the computer
-- `Inactive` - No user input detected for 1+ minute (configurable)
+- `Active` - Windows received user input within the configured inactivity threshold
+- `Inactive` - No user input was detected for at least the configured threshold
 - `SessionStart` - A new logger process began; no time is attributed across this boundary
 - `SessionEnd` - The logger stopped normally and closes the final usage interval
 
@@ -247,27 +247,21 @@ Time Spent (Hours) | Time Spent (Minutes)
 - **Inactivity Detection**: Automatically detects when user is idle (default: 1 minute)
 - **Durable Logging**: Writes atomic SQLite transactions in WAL mode, allowing reports and exports during collection
 
-### How It Works
+### How Active and Inactive Time Is Counted
 
-1. Polls the foreground window every 500 milliseconds
-2. Detects window changes and logs them with timestamp
-3. Monitors user input (keyboard/mouse) to detect inactivity
-4. When inactive for 1 minute, logs "Inactive" status
-5. When activity resumes, logs "Active" status with new window
+WindowLogger checks the foreground window and the time since Windows last received user input on each poll (every 500 milliseconds by default). It does not measure how much typing or clicking occurred, and `Active` does not mean the activity was productive. The default inactivity threshold is 60 seconds. Configure the threshold and polling interval in the control center's **Privacy & Settings** tab.
 
-### Customization
+| Situation | How time is counted |
+| --- | --- |
+| Keyboard or mouse input occurred within the inactivity threshold | `Active`, attributed to the foreground window. |
+| No input for at least the threshold | `Inactive`, attributed to the last recorded window. |
+| Input resumes | `Active` again, attributed to the current foreground window. |
+| Tracking is paused or stopped | Not counted. |
+| A window matches an exclusion rule | Removed from the dashboard and reports, whether `Active` or `Inactive`. |
 
-Edit constants in `WindowLogger/Program.cs`:
+The status changes when the next poll detects the threshold crossing or resumed input; it is not backdated to the last input. With the default settings, the first minute after the last input remains `Active`. For example, if the last input was at 09:10, an `Inactive` event will normally be recorded around 09:11, and the interval from 09:10 to that event remains `Active`. Poll timing can shift the boundary slightly.
 
-```csharp
-private static readonly TimeSpan InactivityThreshold = TimeSpan.FromMinutes(1);
-```
-
-Change the polling interval (default: 500ms):
-
-```csharp
-private static readonly TimeSpan PollInterval = TimeSpan.FromMilliseconds(500);
-```
+Each recorded status applies from its timestamp until the next usage event or session end. The dashboard's total time includes both `Active` and `Inactive` minutes; its separate **Active** figure shows time classified as active. Watching a video or reading without keyboard or mouse input eventually counts as `Inactive`. Input while an app is in the foreground counts as `Active` regardless of whether it is work. Paused time, stopped time, and intervals excluded by classification rules do not contribute to these totals.
 
 ### Running as a Background Service
 
@@ -639,7 +633,7 @@ Group applications into higher-level categories for aggregate reporting.
 
 **WindowAnalyser:**
 
-- ClosedXML (0.105.0-rc) - for Excel generation
+- ClosedXML (0.105.1) - for Excel generation
 - Microsoft.Data.Sqlite - for concurrent SQLite snapshot reads and CSV portability operations
 - System.Text.Json (included with .NET) - for configuration parsing
 
