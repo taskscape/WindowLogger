@@ -74,6 +74,56 @@ public sealed class DashboardAnalyticsTests
         });
     }
 
+    [Test]
+    public void Time_selection_clips_durations_and_rebuilds_current_and_previous_breakdowns()
+    {
+        DateTime day = new(2026, 11, 2);
+        ActivityRecord[] current =
+        [
+            ActivityRecord.Create(day.AddHours(8), "Editor [code.exe]", "Active"),
+            ActivityRecord.Create(day.AddHours(9), "Browser [browser.exe]", "Active"),
+            ActivityRecord.Create(day.AddHours(10), "Browser [browser.exe]", "Inactive"),
+            ActivityRecord.Create(day.AddHours(11), "Editor [code.exe]", "Active"),
+            ActivityRecord.Create(day.AddHours(12), string.Empty, "SessionEnd")
+        ];
+        ActivityRecord[] previous =
+        [
+            ActivityRecord.Create(day.AddDays(-1).AddHours(8), "Editor [code.exe]", "Active"),
+            ActivityRecord.Create(day.AddDays(-1).AddHours(10), "Browser [browser.exe]", "Inactive"),
+            ActivityRecord.Create(day.AddDays(-1).AddHours(12), string.Empty, "SessionEnd")
+        ];
+        DashboardSnapshot snapshot = DashboardAnalytics.Build(current, previous, CreateSettings(),
+            day, day.AddDays(1), day.AddDays(-1), day);
+        DashboardSnapshot selected = DashboardAnalytics.SelectTimeRange(snapshot,
+            day.AddHours(8.5), day.AddHours(10.5), day.AddDays(-1).AddHours(8.5), day.AddDays(-1).AddHours(10.5));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(selected.Timeline.First().Start, Is.EqualTo(day.AddHours(8.5)));
+            Assert.That(selected.Timeline.Last().End, Is.EqualTo(day.AddHours(10.5)));
+            Assert.That(selected.ActiveMinutes, Is.EqualTo(90));
+            Assert.That(selected.IdleMinutes, Is.EqualTo(30));
+            Assert.That(selected.PreviousMinutes, Is.EqualTo(120));
+            Assert.That(selected.Categories.Single(item => item.Name == "Development").TotalMinutes, Is.EqualTo(30));
+            Assert.That(selected.Categories.Single(item => item.Name == "Development").PreviousMinutes, Is.EqualTo(90));
+            Assert.That(selected.Applications.Single(item => item.Name == "Browser").TotalMinutes, Is.EqualTo(90));
+            Assert.That(selected.Applications.Single(item => item.Name == "Browser").PreviousMinutes, Is.EqualTo(30));
+            Assert.That(snapshot.Timeline.First().Start, Is.EqualTo(day.AddHours(8)));
+            Assert.That(snapshot.ActiveMinutes + snapshot.IdleMinutes, Is.EqualTo(240));
+        });
+
+        DashboardSnapshot boundary = DashboardAnalytics.SelectTimeRange(snapshot,
+            day.AddHours(9), day.AddHours(10), day.AddDays(-1).AddHours(9), day.AddDays(-1).AddHours(10));
+        Assert.That(boundary.Timeline.Single().Application, Is.EqualTo("Browser"));
+        Assert.That(boundary.IdleMinutes, Is.Zero, "An activity beginning at the end boundary is outside the selection.");
+
+        DashboardSnapshot empty = DashboardAnalytics.SelectTimeRange(snapshot,
+            day.AddHours(18), day.AddHours(19), day.AddDays(-1).AddHours(18), day.AddDays(-1).AddHours(19));
+        Assert.That(empty.Timeline, Is.Empty);
+        Assert.That(empty.Categories, Is.Empty);
+        Assert.That(empty.Applications, Is.Empty);
+    }
+
     private static AppSettings CreateSettings() => new()
     {
         Applications =

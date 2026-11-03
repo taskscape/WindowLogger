@@ -95,7 +95,8 @@ The analyser, interactive timeline, and Rule Tester use the same shared evaluati
 Open **Timeline & Analytics** to explore activity without generating a workbook:
 
 - switch among day, week, and month periods and navigate backward or forward;
-- distinguish active and idle blocks on the proportional timeline;
+- compare three stacked timelines for active/idle status, categories, and applications, with matching dimensions and time markers;
+- drag left or right across any timeline to select a time range, highlight it on all three bars, and filter the totals and category/application/window-title lists to that interval; clear the selection with **Clear selection**, **Esc**, or a right-click on a timeline;
 - compare total time and every category/application with the immediately preceding equivalent period;
 - search across category names, applications, and raw window titles;
 - filter the view to active or inactive time;

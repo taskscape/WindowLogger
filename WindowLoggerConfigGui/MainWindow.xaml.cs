@@ -8,7 +8,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
-using System.Windows.Media;
+using System.Windows.Input;
 using System.Windows.Threading;
 using Microsoft.Win32;
 using WindowLogger.Shared.Activity;
@@ -43,6 +43,11 @@ public partial class MainWindow : Window
     private ActivityRecord[] _currentAnalyticsRecords = [];
     private ActivityRecord[] _previousAnalyticsRecords = [];
     private DashboardSnapshot? _dashboardSnapshot;
+    private DashboardSnapshot? _analyticsView;
+    private TimelineSelection? _timelineSelection;
+    private TimelineSelection? _selectionBeforeDrag;
+    private Canvas? _timelineDragCanvas;
+    private double _timelineDragAnchor;
     private bool _controlCenterLoaded;
     private bool _updatingAnalyticsUi;
     private DateTime _previousRangeStart;
@@ -464,7 +469,12 @@ public partial class MainWindow : Window
             return;
         }
 
-        (_dashboardRangeStart, _dashboardPeriodEnd) = GetPeriodRange(_dashboardAnchor, _dashboardPeriod);
+        (DateTime rangeStart, DateTime periodEnd) = GetPeriodRange(_dashboardAnchor, _dashboardPeriod);
+        if (rangeStart != _dashboardRangeStart || periodEnd != _dashboardPeriodEnd)
+        {
+            ClearTimelineSelection(render: false);
+        }
+        (_dashboardRangeStart, _dashboardPeriodEnd) = (rangeStart, periodEnd);
         (_previousRangeStart, DateTime previousPeriodEnd) = GetPeriodRange(
             ShiftPeriod(_dashboardRangeStart, -1), _dashboardPeriod);
 
@@ -563,20 +573,34 @@ public partial class MainWindow : Window
 
     private void RenderAnalytics()
     {
+        RenderAnalyticsDetails();
+        RenderTimeline();
+    }
+
+    private void RenderAnalyticsDetails()
+    {
         if (_dashboardSnapshot is null)
         {
             return;
         }
 
-        double total = _dashboardSnapshot.ActiveMinutes + _dashboardSnapshot.IdleMinutes;
-        double previous = _dashboardSnapshot.PreviousMinutes;
-        AnalyticsActiveText.Text = DashboardBarItem.FormatDuration(_dashboardSnapshot.ActiveMinutes);
-        AnalyticsIdleText.Text = DashboardBarItem.FormatDuration(_dashboardSnapshot.IdleMinutes);
+        _analyticsView = _timelineSelection is null ? _dashboardSnapshot : DashboardAnalytics.SelectTimeRange(
+            _dashboardSnapshot, _timelineSelection.Start, _timelineSelection.End,
+            _previousRangeStart + (_timelineSelection.Start - _dashboardRangeStart),
+            _previousRangeStart + (_timelineSelection.End - _dashboardRangeStart));
+        double total = _analyticsView.ActiveMinutes + _analyticsView.IdleMinutes;
+        double previous = _analyticsView.PreviousMinutes;
+        AnalyticsActiveText.Text = DashboardBarItem.FormatDuration(_analyticsView.ActiveMinutes);
+        AnalyticsIdleText.Text = DashboardBarItem.FormatDuration(_analyticsView.IdleMinutes);
         AnalyticsPreviousText.Text = DashboardBarItem.FormatDuration(previous);
         AnalyticsChangeText.Text = previous <= 0
             ? total <= 0 ? "0%" : "New"
             : $"{(total - previous) / previous * 100:+0.#;-0.#;0}%";
         AnalyticsPeriodText.Text = FormatPeriodLabel(_dashboardRangeStart, _dashboardPeriodEnd);
+        TimelineSelectionText.Text = _timelineSelection is null
+            ? "Drag on any timeline to select a time range."
+            : $"Selected: {_timelineSelection.Start:d MMM HH:mm:ss} – {_timelineSelection.End:d MMM HH:mm:ss}";
+        ClearTimelineSelectionButton.IsEnabled = _timelineSelection is not null || _timelineDragCanvas is not null;
         DayPeriodButton.FontWeight = _dashboardPeriod == DashboardPeriod.Day ? FontWeights.Bold : FontWeights.Normal;
         WeekPeriodButton.FontWeight = _dashboardPeriod == DashboardPeriod.Week ? FontWeights.Bold : FontWeights.Normal;
         MonthPeriodButton.FontWeight = _dashboardPeriod == DashboardPeriod.Month ? FontWeights.Bold : FontWeights.Normal;
@@ -585,7 +609,8 @@ public partial class MainWindow : Window
         try
         {
             string? selectedCategory = (CategoryChartList.SelectedItem as DashboardBarItem)?.Name;
-            CategoryChartList.ItemsSource = CreateBarItems(_dashboardSnapshot.Categories);
+            CategoryChartList.ItemsSource = CreateBarItems(_analyticsView.Categories
+                .Where(item => _timelineSelection is null || item.TotalMinutes > 0));
             CategoryChartList.SelectedItem = CategoryChartList.Items.Cast<DashboardBarItem>()
                 .FirstOrDefault(item => item.Name.Equals(selectedCategory, StringComparison.OrdinalIgnoreCase));
             UpdateApplicationsForCategory();
@@ -594,7 +619,6 @@ public partial class MainWindow : Window
         {
             _updatingAnalyticsUi = false;
         }
-        RenderTimeline();
     }
 
     private static string FormatPeriodLabel(DateTime start, DateTime end) => end - start <= TimeSpan.FromDays(1)
@@ -625,13 +649,13 @@ public partial class MainWindow : Window
 
     private void UpdateApplicationsForCategory()
     {
-        if (_dashboardSnapshot is null)
+        if (_analyticsView is null)
         {
             return;
         }
         string? category = (CategoryChartList.SelectedItem as DashboardBarItem)?.Name;
-        IEnumerable<TimelineBlock> current = _dashboardSnapshot.Timeline;
-        IEnumerable<TimelineBlock> previous = _dashboardSnapshot.PreviousTimeline;
+        IEnumerable<TimelineBlock> current = _analyticsView.Timeline;
+        IEnumerable<TimelineBlock> previous = _analyticsView.PreviousTimeline;
         if (!string.IsNullOrWhiteSpace(category))
         {
             current = current.Where(block => block.Categories.Contains(category, StringComparer.OrdinalIgnoreCase));
@@ -639,7 +663,8 @@ public partial class MainWindow : Window
         }
 
         string? selectedApplication = (ApplicationChartList.SelectedItem as DashboardBarItem)?.Name;
-        ApplicationChartList.ItemsSource = CreateBarItems(Summarize(current, previous, block => block.Application));
+        ApplicationChartList.ItemsSource = CreateBarItems(Summarize(current, previous, block => block.Application)
+            .Where(item => _timelineSelection is null || item.TotalMinutes > 0));
         ApplicationChartList.SelectedItem = ApplicationChartList.Items.Cast<DashboardBarItem>()
             .FirstOrDefault(item => item.Name.Equals(selectedApplication, StringComparison.OrdinalIgnoreCase));
         UpdateWindowDrillDown();
@@ -655,13 +680,13 @@ public partial class MainWindow : Window
 
     private void UpdateWindowDrillDown()
     {
-        if (_dashboardSnapshot is null)
+        if (_analyticsView is null)
         {
             return;
         }
         string? category = (CategoryChartList.SelectedItem as DashboardBarItem)?.Name;
         string? application = (ApplicationChartList.SelectedItem as DashboardBarItem)?.Name;
-        IEnumerable<TimelineBlock> blocks = _dashboardSnapshot.Timeline;
+        IEnumerable<TimelineBlock> blocks = _analyticsView.Timeline;
         if (!string.IsNullOrWhiteSpace(category))
         {
             blocks = blocks.Where(block => block.Categories.Contains(category, StringComparer.OrdinalIgnoreCase));
@@ -708,45 +733,132 @@ public partial class MainWindow : Window
 
     private void TimelineCanvas_SizeChanged(object sender, SizeChangedEventArgs e) => RenderTimeline();
 
+    private void TimelineCanvas_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        if (sender is not Canvas canvas || canvas.ActualWidth <= 0 || _dashboardPeriodEnd <= _dashboardRangeStart)
+        {
+            return;
+        }
+        canvas.Focus();
+        if (!canvas.CaptureMouse())
+        {
+            return;
+        }
+        _timelineDragCanvas = canvas;
+        _timelineDragAnchor = e.GetPosition(canvas).X;
+        _selectionBeforeDrag = _timelineSelection;
+        ClearTimelineSelectionButton.IsEnabled = true;
+        e.Handled = true;
+    }
+
+    private void TimelineCanvas_MouseMove(object sender, MouseEventArgs e)
+    {
+        if (sender == _timelineDragCanvas && _timelineDragCanvas is not null && e.LeftButton == MouseButtonState.Pressed)
+        {
+            UpdateTimelineSelection(e.GetPosition(_timelineDragCanvas).X);
+            e.Handled = true;
+        }
+    }
+
+    private void TimelineCanvas_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+    {
+        if (sender == _timelineDragCanvas && _timelineDragCanvas is not null)
+        {
+            UpdateTimelineSelection(e.GetPosition(_timelineDragCanvas).X);
+            EndTimelineDrag();
+            ClearTimelineSelectionButton.IsEnabled = _timelineSelection is not null;
+            e.Handled = true;
+        }
+    }
+
+    private void UpdateTimelineSelection(double position)
+    {
+        if (_timelineDragCanvas is null)
+        {
+            return;
+        }
+        TimelineSelection? selection = TimelineSelection.FromPositions(
+            _timelineDragAnchor, position, _timelineDragCanvas.ActualWidth, _dashboardRangeStart, _dashboardPeriodEnd)
+            ?? _selectionBeforeDrag;
+        if (selection == _timelineSelection)
+        {
+            return;
+        }
+        _timelineSelection = selection;
+        RenderAnalyticsDetails();
+        RenderTimelineSelection();
+    }
+
+    private void EndTimelineDrag()
+    {
+        Canvas? canvas = _timelineDragCanvas;
+        _timelineDragCanvas = null;
+        _selectionBeforeDrag = null;
+        canvas?.ReleaseMouseCapture();
+    }
+
+    private void TimelineCanvas_LostMouseCapture(object sender, MouseEventArgs e)
+    {
+        if (sender == _timelineDragCanvas)
+        {
+            _timelineSelection = _selectionBeforeDrag;
+            EndTimelineDrag();
+            RenderAnalyticsDetails();
+            RenderTimelineSelection();
+        }
+    }
+
+    private void TimelineCanvas_MouseRightButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        ClearTimelineSelection();
+        e.Handled = true;
+    }
+
+    private void ClearTimelineSelection_Click(object sender, RoutedEventArgs e) => ClearTimelineSelection();
+
+    private void MainWindow_PreviewKeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key == Key.Escape && (_timelineSelection is not null || _timelineDragCanvas is not null))
+        {
+            ClearTimelineSelection();
+            e.Handled = true;
+        }
+    }
+
+    private void ClearTimelineSelection(bool render = true)
+    {
+        EndTimelineDrag();
+        _timelineSelection = null;
+        if (render)
+        {
+            RenderAnalyticsDetails();
+            RenderTimelineSelection();
+        }
+    }
+
+    private void RenderTimelineSelection()
+    {
+        foreach (Canvas canvas in new[] { TimelineCanvas, CategoryTimelineCanvas, ApplicationTimelineCanvas })
+        {
+            TimelineRenderer.RenderSelection(canvas, _dashboardRangeStart, _dashboardPeriodEnd, _timelineSelection);
+        }
+    }
+
     private void RenderTimeline()
     {
-        TimelineCanvas.Children.Clear();
-        if (_dashboardSnapshot is null || TimelineCanvas.ActualWidth <= 0 || _dashboardPeriodEnd <= _dashboardRangeStart)
+        // SizeChanged can run while InitializeComponent is still creating the other rows.
+        if (TimelineCanvas is null || CategoryTimelineCanvas is null || ApplicationTimelineCanvas is null)
         {
             return;
         }
 
-        double width = TimelineCanvas.ActualWidth;
-        double periodTicks = (_dashboardPeriodEnd - _dashboardRangeStart).Ticks;
-        foreach (DateTime tick in GetTimelineTicks())
-        {
-            double x = (tick - _dashboardRangeStart).Ticks / periodTicks * width;
-            var line = new System.Windows.Shapes.Line
-                { X1 = x, X2 = x, Y1 = 0, Y2 = 76, Stroke = Brushes.LightGray, StrokeThickness = 1 };
-            TimelineCanvas.Children.Add(line);
-            var label = new TextBlock { Text = FormatTimelineTick(tick), FontSize = 10, Foreground = Brushes.DimGray };
-            Canvas.SetLeft(label, Math.Min(x + 2, Math.Max(0, width - 44)));
-            Canvas.SetTop(label, 2);
-            TimelineCanvas.Children.Add(label);
-        }
-
-        foreach (TimelineBlock block in _dashboardSnapshot.Timeline)
-        {
-            double left = (block.Start - _dashboardRangeStart).Ticks / periodTicks * width;
-            double blockWidth = Math.Max(2, (block.End - block.Start).Ticks / periodTicks * width);
-            var border = new Border
-            {
-                Width = blockWidth,
-                Height = 42,
-                Background = block.Status == "Active"
-                    ? new SolidColorBrush(Color.FromRgb(67, 133, 208))
-                    : new SolidColorBrush(Color.FromRgb(224, 162, 58)),
-                ToolTip = $"{block.Start:g} – {block.End:t}\n{block.Status} • {block.Application}\n{block.WindowTitle}"
-            };
-            Canvas.SetLeft(border, left);
-            Canvas.SetTop(border, 24);
-            TimelineCanvas.Children.Add(border);
-        }
+        TimelineBlock[] blocks = _dashboardSnapshot?.Timeline.ToArray() ?? [];
+        KeyValuePair<DateTime, string>[] ticks = _dashboardPeriodEnd > _dashboardRangeStart
+            ? GetTimelineTicks().Select(tick => new KeyValuePair<DateTime, string>(tick, FormatTimelineTick(tick))).ToArray()
+            : [];
+        TimelineRenderer.Render(TimelineCanvas, blocks, _dashboardRangeStart, _dashboardPeriodEnd, ticks, TimelineGrouping.Activity, _timelineSelection);
+        TimelineRenderer.Render(CategoryTimelineCanvas, blocks, _dashboardRangeStart, _dashboardPeriodEnd, ticks, TimelineGrouping.Category, _timelineSelection);
+        TimelineRenderer.Render(ApplicationTimelineCanvas, blocks, _dashboardRangeStart, _dashboardPeriodEnd, ticks, TimelineGrouping.Application, _timelineSelection);
     }
 
     private IEnumerable<DateTime> GetTimelineTicks()

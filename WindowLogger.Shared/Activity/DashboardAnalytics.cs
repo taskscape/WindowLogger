@@ -56,7 +56,30 @@ public static class DashboardAnalytics
         current = ApplyFilters(current, search, status);
         previous = ApplyFilters(previous, search, status);
 
-        return new DashboardSnapshot
+        return CreateSnapshot(current, previous);
+    }
+
+    public static DashboardSnapshot SelectTimeRange(
+        DashboardSnapshot snapshot,
+        DateTime start,
+        DateTime end,
+        DateTime previousStart,
+        DateTime previousEnd) => CreateSnapshot(
+            ClipTimeline(snapshot.Timeline, start, end),
+            ClipTimeline(snapshot.PreviousTimeline, previousStart, previousEnd));
+
+    private static IReadOnlyList<TimelineBlock> ClipTimeline(
+        IEnumerable<TimelineBlock> blocks, DateTime start, DateTime end) => blocks
+        .Where(block => end > start && block.Start < end && block.End > start)
+        .Select(block => block with
+        {
+            Start = block.Start < start ? start : block.Start,
+            End = block.End > end ? end : block.End
+        })
+        .ToArray();
+
+    private static DashboardSnapshot CreateSnapshot(
+        IReadOnlyList<TimelineBlock> current, IReadOnlyList<TimelineBlock> previous) => new()
         {
             Timeline = current,
             PreviousTimeline = previous,
@@ -67,7 +90,6 @@ public static class DashboardAnalytics
                 current.Select(block => (block.Application, block)),
                 previous.Select(block => (block.Application, block)))
         };
-    }
 
     private static List<TimelineBlock> BuildTimeline(
         IEnumerable<ActivityRecord> records,
