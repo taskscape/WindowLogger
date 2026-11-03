@@ -292,7 +292,9 @@
                         <ListBox x:Name="ApplicationsList" SelectionChanged="ApplicationsList_SelectionChanged" />
                         <StackPanel Grid.Row="1" Margin="0,8,0,0" Orientation="Horizontal">
                             <Button Margin="0,0,6,0" Padding="12,5" Click="MoveApplicationUp_Click" Content="Move Up" />
-                            <Button Padding="12,5" Click="MoveApplicationDown_Click" Content="Move Down" />
+                            <!-- Keep alphabetical sorting beside the existing rule-order controls with matching spacing. -->
+                            <Button Margin="0,0,6,0" Padding="12,5" Click="MoveApplicationDown_Click" Content="Move Down" />
+                            <Button Padding="12,5" Click="SortApplicationNames_Click" Content="Sort Names" />
                         </StackPanel>
                     </Grid>
 

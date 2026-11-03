@@ -1449,6 +1449,34 @@ public partial class MainWindow : Window
 
     private void MoveApplicationDown_Click(object sender, RoutedEventArgs e) => MoveApplication(1);
 
+    private void SortApplicationNames_Click(object sender, RoutedEventArgs e)
+    {
+        if (_settings.Applications.Count < 2)
+        {
+            return;
+        }
+
+        // Apply pending edits before sorting so renamed rules use their current names and retain their patterns.
+        CommitApplicationEditor();
+        int selectedIndex = ApplicationsList.SelectedIndex;
+        ApplicationDefinition? selectedApplication = selectedIndex >= 0
+            ? _settings.Applications[selectedIndex]
+            : null;
+
+        // Sort the saved rule order, preserving precedence between names that compare equal regardless of case.
+        List<ApplicationDefinition> sortedApplications = _settings.Applications
+            .OrderBy(application => application.Name, StringComparer.CurrentCultureIgnoreCase)
+            .ToList();
+        if (!_settings.Applications.SequenceEqual(sortedApplications))
+        {
+            _settings.Applications = sortedApplications;
+            MarkDirty();
+        }
+
+        // Refresh renamed labels even if order was unchanged, following the same application object after reordering.
+        RefreshApplicationsList(selectedApplication is null ? -1 : sortedApplications.IndexOf(selectedApplication));
+    }
+
     private void MoveApplication(int direction)
     {
         int index = ApplicationsList.SelectedIndex;
