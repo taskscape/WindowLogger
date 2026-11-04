@@ -10,6 +10,11 @@
         WindowStartupLocation="CenterScreen"
         PreviewKeyDown="MainWindow_PreviewKeyDown">
     <Window.Resources>
+        <!-- Keep the Click handler outside a Style setter so the XAML compiler connects it to the MenuItem rather than the next named control. -->
+        <ContextMenu x:Key="WindowTitleContextMenu" x:Shared="False">
+            <MenuItem Header="Copy text" Click="CopyWindowTitleText_Click"
+                      CommandParameter="{Binding PlacementTarget.Content, RelativeSource={RelativeSource AncestorType={x:Type ContextMenu}}}" />
+        </ContextMenu>
         <Style x:Key="TimelineBorderStyle" TargetType="Border">
             <Setter Property="Height" Value="{x:Static local:TimelineRenderer.RowHeight}" />
             <Setter Property="BorderBrush" Value="#FFD6DEE7" />
@@ -187,7 +192,14 @@
                             </ListBox>
                         </GroupBox>
                         <GroupBox Grid.Column="2" Header="Window titles">
-                            <ListBox x:Name="WindowTitleList" />
+                            <ListBox x:Name="WindowTitleList">
+                                <!-- Attach the menu to each row so copying uses the clicked line, even when another row is selected. -->
+                                <ListBox.ItemContainerStyle>
+                                    <Style TargetType="ListBoxItem">
+                                        <Setter Property="ContextMenu" Value="{StaticResource WindowTitleContextMenu}" />
+                                    </Style>
+                                </ListBox.ItemContainerStyle>
+                            </ListBox>
                         </GroupBox>
                     </Grid>
                 </Grid>
@@ -302,7 +314,10 @@
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto" />
                             <RowDefinition Height="*" />
+                            <!-- Reserve space beneath each application pattern list so matching guidance stays visible. -->
+                            <RowDefinition Height="Auto" />
                             <RowDefinition Height="*" />
+                            <RowDefinition Height="Auto" />
                             <RowDefinition Height="Auto" />
                         </Grid.RowDefinitions>
                         <Grid.ColumnDefinitions>
@@ -314,14 +329,20 @@
                         <TextBox x:Name="AppNameText" Grid.Row="0" Grid.Column="1" Margin="0,0,0,8" />
 
                         <TextBlock Grid.Row="1" Grid.Column="0" Margin="0,6,12,8" Text="Include&#x0a;(one per line)" />
-                        <TextBox x:Name="AppIncludeText" Grid.Row="1" Grid.Column="1" Margin="0,0,0,8"
+                        <TextBox x:Name="AppIncludeText" Grid.Row="1" Grid.Column="1" Margin="0,0,0,4"
                                  AcceptsReturn="True" VerticalScrollBarVisibility="Auto" TextWrapping="Wrap" />
+                        <!-- Explain the all-entry requirement where users edit application include patterns. -->
+                        <TextBlock Grid.Row="2" Grid.Column="1" Margin="0,0,0,8" TextWrapping="Wrap"
+                                   Text="All words or phrases listed above must appear in the window title or executable name for this application to match. Matching is case-insensitive." />
 
-                        <TextBlock Grid.Row="2" Grid.Column="0" Margin="0,6,12,8" Text="Exclude&#x0a;(one per line)" />
-                        <TextBox x:Name="AppExcludeText" Grid.Row="2" Grid.Column="1" Margin="0,0,0,8"
+                        <TextBlock Grid.Row="3" Grid.Column="0" Margin="0,6,12,8" Text="Exclude&#x0a;(one per line)" />
+                        <TextBox x:Name="AppExcludeText" Grid.Row="3" Grid.Column="1" Margin="0,0,0,4"
                                  AcceptsReturn="True" VerticalScrollBarVisibility="Auto" TextWrapping="Wrap" />
+                        <!-- Explain that any exclude entry overrides a successful include match. -->
+                        <TextBlock Grid.Row="4" Grid.Column="1" Margin="0,0,0,8" TextWrapping="Wrap"
+                                   Text="If any word or phrase listed above appears in the window title or executable name, this application will not match, even if all Include entries match. Matching is case-insensitive." />
 
-                        <StackPanel Grid.Row="3" Grid.Column="1" Orientation="Horizontal">
+                        <StackPanel Grid.Row="5" Grid.Column="1" Orientation="Horizontal">
                             <Button Margin="0,0,6,0" Padding="12,5" Click="AddApplication_Click" Content="Add New" />
                             <Button Margin="0,0,6,0" Padding="12,5" Click="UpdateApplication_Click" Content="Update Selected" />
                             <Button Padding="12,5" Click="RemoveApplication_Click" Content="Remove Selected" />

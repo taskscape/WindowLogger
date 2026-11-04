@@ -708,6 +708,16 @@ public partial class MainWindow : Window
             .ToList();
     }
 
+    private void CopyWindowTitleText_Click(object sender, RoutedEventArgs e)
+    {
+        // Copy the row's complete formatted string, preserving duration, status, and any title text outside the visible area.
+        if (sender is MenuItem { CommandParameter: string line })
+        {
+            Clipboard.SetText(line);
+            SetStatus("Window title line copied to the clipboard.");
+        }
+    }
+
     private static IReadOnlyList<DashboardBreakdown> Summarize(
         IEnumerable<TimelineBlock> current,
         IEnumerable<TimelineBlock> previous,
